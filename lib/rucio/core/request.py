@@ -2021,7 +2021,7 @@ def release_waiting_requests_per_deadline(
             old_requests_subquery,
             and_(filtered_requests_subquery.c.dataset_name == old_requests_subquery.c.name,
                  filtered_requests_subquery.c.dataset_scope == old_requests_subquery.c.scope)
-        ).subquery()
+        )
 
         amount_released_requests = update(
             models.Request
@@ -2093,7 +2093,7 @@ def release_waiting_requests_per_free_volume(
              filtered_requests_subquery.c.dataset_scope == cumulated_volume_subquery.c.scope)
     ).where(
         cumulated_volume_subquery.c.cum_volume <= volume - sum_volume_active_subquery.c.sum_bytes
-    ).subquery()
+    )
 
     amount_released_requests = update(
         models.Request
@@ -2233,8 +2233,6 @@ def release_waiting_requests_fifo(
     if account is not None:
         subquery = subquery.where(models.Request.account == account)
 
-    subquery = subquery.subquery()
-
     if dialect == 'mysql':
         # TODO: check if the logic from this `if` is still needed on modern mysql
 
@@ -2242,11 +2240,11 @@ def release_waiting_requests_fifo(
         subquery = select(
             models.Request.id
         ).join(
-            subquery,
+            subquery.subquery(),
             models.Request.id == subquery.c.id
         ).subquery()
         # wrap select to update and select from the same table
-        subquery = select(subquery.c.id).subquery()
+        subquery = select(subquery.c.id)
 
     stmt = update(
         models.Request
@@ -2311,7 +2309,7 @@ def release_waiting_requests_grouped_fifo(
     ).subquery()
 
     # needed for mysql to update and select from the same table
-    cumulated_children_subquery = select(cumulated_children_subquery.c.id).subquery()
+    cumulated_children_subquery = select(cumulated_children_subquery.c.id)
 
     stmt = update(
         models.Request
