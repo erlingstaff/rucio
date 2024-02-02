@@ -18,6 +18,7 @@ from json import loads
 from json.decoder import JSONDecodeError
 from typing import TYPE_CHECKING, Optional
 
+from sqlalchemy import and_, select
 from sqlalchemy.orm.exc import NoResultFound
 
 from rucio.common.config import config_get
@@ -46,9 +47,16 @@ def _exists(scope, name, *, session: "Session"):
     :session: The session used
     """
     try:
-        res = session.query(models.DataIdentifier).filter_by(scope=scope, name=name).\
-            with_hint(models.DataIdentifier, "INDEX(DIDS DIDS_PK)", 'oracle').one()
-        return True, res.did_type
+        stmt = select(
+            models.DataIdentifier
+        ).where(
+            and_(models.DataIdentifier.scope == scope,
+                 models.DataIdentifier.name == name)
+        ).with_hint(
+            models.DataIdentifier, "INDEX(DIDS DIDS_PK)", 'oracle'
+        )
+        result = session.execute(stmt).scalar_one()
+        return True, result.did_type
     except NoResultFound:
         return False, None
 

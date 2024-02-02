@@ -15,7 +15,7 @@
 import datetime
 from typing import TYPE_CHECKING
 
-from sqlalchemy import literal, insert, select
+from sqlalchemy import literal, insert, select, and_, delete
 from sqlalchemy.orm.exc import NoResultFound
 
 from rucio.db.sqla import models, filter_thread_work
@@ -78,7 +78,15 @@ def del_counter(rse_id, account, *, session: "Session"):
     :param session: The database session in use.
     """
 
-    session.query(models.AccountUsage).filter_by(rse_id=rse_id, account=account).delete(synchronize_session=False)
+    stmt = delete(
+        models.AccountUsage
+    ).where(
+        and_(models.AccountUsage.rse_id == rse_id,
+             models.AccountUsage.account == account)
+    ).execution_options(
+        synchronize_session=False
+    )
+    session.execute(stmt)
 
 
 @read_session
@@ -91,17 +99,22 @@ def get_updated_account_counters(total_workers, worker_number, *, session: "Sess
     :param session:            Database session in use.
     :returns:                  List of rse_ids whose rse_counters need to be updated.
     """
-    query = session.query(models.UpdatedAccountCounter.account, models.UpdatedAccountCounter.rse_id).\
-        distinct(models.UpdatedAccountCounter.account, models.UpdatedAccountCounter.rse_id)
+    stmt = select(
+        models.UpdatedAccountCounter.account,
+        models.UpdatedAccountCounter.rse_id
+    ).distinct(
+        models.UpdatedAccountCounter.account,
+        models.UpdatedAccountCounter.rse_id
+    )
 
     if session.bind.dialect.name == 'oracle':
         hash_variable = 'CONCAT(account, rse_id)'''
     else:
         hash_variable = 'concat(account, rse_id)'
 
-    query = filter_thread_work(session=session, query=query, total_threads=total_workers, thread_id=worker_number, hash_variable=hash_variable)
+    stmt = filter_thread_work(session=session, query=stmt, total_threads=total_workers, thread_id=worker_number, hash_variable=hash_variable)
 
-    return query.all()
+    return session.execute(stmt).all()
 
 
 @transactional_session
@@ -114,10 +127,22 @@ def update_account_counter(account, rse_id, *, session: "Session"):
     :param session:  Database session in use.
     """
 
-    updated_account_counters = session.query(models.UpdatedAccountCounter).filter_by(account=account, rse_id=rse_id).all()
+    stmt = select(
+        models.UpdatedAccountCounter
+    ).where(
+        and_(models.UpdatedAccountCounter.account == account,
+             models.UpdatedAccountCounter.rse_id == rse_id)
+    )
+    updated_account_counters = session.execute(stmt).scalars().all()
 
     try:
-        account_counter = session.query(models.AccountUsage).filter_by(account=account, rse_id=rse_id).one()
+        stmt = select(
+            models.AccountUsage
+        ).where(
+            and_(models.AccountUsage.account == account,
+                 models.AccountUsage.rse_id == rse_id)
+        )
+        account_counter = session.execute(stmt).scalar_one()
         account_counter.bytes += sum([updated_account_counter.bytes for updated_account_counter in updated_account_counters])
         account_counter.files += sum([updated_account_counter.files for updated_account_counter in updated_account_counters])
     except NoResultFound:
@@ -139,7 +164,13 @@ def update_account_counter_history(account, rse_id, *, session: "Session"):
     :param rse_id:   The rse_id to update.
     :param session:  Database session in use.
     """
-    counter = session.query(models.AccountUsage).filter_by(rse_id=rse_id, account=account).one_or_none()
+    stmt = select(
+        models.AccountUsage
+    ).where(
+        and_(models.AccountUsage.account == account,
+             models.AccountUsage.rse_id == rse_id)
+    )
+    counter = session.execute(stmt).scalar_one_or_none()
     if counter:
         models.AccountUsageHistory(rse_id=rse_id, account=account, files=counter.files, bytes=counter.bytes).save(session=session)
     else:
