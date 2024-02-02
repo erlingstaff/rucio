@@ -16,7 +16,7 @@
 import json
 from typing import TYPE_CHECKING
 
-from sqlalchemy import or_, delete, update, insert
+from sqlalchemy import or_, delete, update, insert, select
 from sqlalchemy.exc import IntegrityError
 
 from rucio.common.config import config_get_list
@@ -114,12 +114,12 @@ def retrieve_messages(bulk: int = 1000,
     """
     messages = []
     try:
-        subquery = session.query(Message.id)
-        subquery = filter_thread_work(session=session, query=subquery, total_threads=total_threads, thread_id=thread)
+        subquery_stmt = select(Message.id)
+        subquery_stmt = filter_thread_work(session=session, query=subquery_stmt, total_threads=total_threads, thread_id=thread)
         if event_type:
-            subquery = subquery.filter_by(event_type=event_type)
+            subquery_stmt = subquery_stmt.where(Message.event_type == event_type)
         elif old_mode:
-            subquery = subquery.filter(Message.event_type != 'email')
+            subquery_stmt = subquery_stmt.where(Message.event_type != 'email')
 
         # Step 1:
         # MySQL does not support limits in nested queries, limit on the outer query instead.
@@ -127,32 +127,40 @@ def retrieve_messages(bulk: int = 1000,
         # FIXME: SQLAlchemy generates wrong nowait MySQL8 statement for MySQL5
         #        Remove once this is resolved in SQLAlchemy
         if session.bind.dialect.name == 'mysql':
-            subquery = subquery.order_by(Message.created_at)
-            query = session.query(Message.id,
-                                  Message.created_at,
-                                  Message.event_type,
-                                  Message.payload,
-                                  Message.services)\
-                           .filter(Message.id.in_(subquery))
+            subquery_stmt = subquery_stmt.order_by(Message.created_at)
+            stmt = select(
+                Message.id,
+                Message.created_at,
+                Message.event_type,
+                Message.payload,
+                Message.services
+            ).where(
+                Message.id.in_(subquery_stmt)
+            )
         else:
-            subquery = subquery.order_by(Message.created_at).limit(bulk)
-            query = session.query(Message.id,
-                                  Message.created_at,
-                                  Message.event_type,
-                                  Message.payload,
-                                  Message.services)\
-                           .filter(Message.id.in_(subquery))\
-                           .with_for_update(nowait=True)
+            subquery_stmt = subquery_stmt.order_by(Message.created_at).limit(bulk)
+            stmt = select(
+                Message.id,
+                Message.created_at,
+                Message.event_type,
+                Message.payload,
+                Message.services
+            ).where(
+                Message.id.in_(subquery_stmt)
+            ).with_for_update(
+                nowait=True
+            )
 
         # Step 2:
         # MySQL does not support limits in nested queries, limit on the outer query instead.
         # This is not as performant, but the best we can get from MySQL.
         if session.bind.dialect.name == 'mysql':
-            query = query.limit(bulk)
+            stmt = stmt.limit(bulk)
 
         # Step 3:
         # Assemble message object
-        for id_, created_at, event_type, payload, services in query:
+        result = session.execute(stmt).all()
+        for id_, created_at, event_type, payload, services in result:
             message = {'id': id_,
                        'created_at': created_at,
                        'event_type': event_type,
@@ -160,8 +168,13 @@ def retrieve_messages(bulk: int = 1000,
 
             # Only switch SQL context when necessary
             if payload == 'nolimit':
-                nolimit_query = session.query(Message.payload_nolimit).filter(Message.id == id_).one()[0]
-                message['payload'] = json.loads(str(nolimit_query))
+                stmt = select(
+                    Message.payload_nolimit
+                ).where(
+                    Message.id == id_
+                )
+                result = session.execute(stmt).scalar_one()
+                message['payload'] = json.loads(str(result))
             else:
                 message['payload'] = json.loads(str(payload))
 
@@ -188,10 +201,15 @@ def delete_messages(messages: "MessagesListType", *, session: "Session") -> None
 
     try:
         if message_condition:
-            stmt = delete(Message).\
-                prefix_with("/*+ index(messages MESSAGES_ID_PK) */", dialect='oracle').\
-                where(or_(*message_condition)).\
-                execution_options(synchronize_session=False)
+            stmt = delete(
+                Message
+            ).prefix_with(
+                "/*+ index(messages MESSAGES_ID_PK) */", dialect='oracle'
+            ).where(
+                or_(*message_condition)
+            ).execution_options(
+                synchronize_session=False
+            )
             session.execute(stmt)
 
             session.execute(insert(MessageHistory), messages)
@@ -208,7 +226,12 @@ def truncate_messages(*, session: "Session") -> None:
     """
 
     try:
-        session.query(Message).delete(synchronize_session=False)
+        stmt = delete(
+            Message
+        ).execution_options(
+            synchronize_session=False
+        )
+        session.execute(stmt)
     except IntegrityError as e:
         raise RucioException(e.args)
 
@@ -230,11 +253,17 @@ def update_messages_services(messages: "MessagesListType", services: str, *, ses
 
     try:
         if message_condition:
-            stmt = update(Message).\
-                prefix_with("/*+ index(messages MESSAGES_ID_PK) */", dialect='oracle').\
-                where(or_(*message_condition)).\
-                execution_options(synchronize_session=False).\
-                values(services=services)
+            stmt = update(
+                Message
+            ).prefix_with(
+                "/*+ index(messages MESSAGES_ID_PK) */", dialect='oracle'
+            ).where(
+                or_(*message_condition)
+            ).execution_options(
+                synchronize_session=False
+            ).values(
+                services=services
+            )
             session.execute(stmt)
 
     except IntegrityError as err:

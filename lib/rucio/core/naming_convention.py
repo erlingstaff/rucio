@@ -19,6 +19,7 @@ from typing import TYPE_CHECKING
 
 from dogpile.cache.api import NO_VALUE
 from sqlalchemy.exc import IntegrityError
+from sqlalchemy import select, and_, delete
 
 from rucio.common.cache import make_region_memcached
 from rucio.common.exception import Duplicate, RucioException, InvalidObject
@@ -70,10 +71,14 @@ def get_naming_convention(scope, convention_type, *, session: "Session"):
 
     :returns: the regular expression.
     """
-    query = session.query(models.NamingConvention.regexp).\
-        filter(models.NamingConvention.scope == scope).\
-        filter(models.NamingConvention.convention_type == convention_type)
-    for row in query:
+    stmt = select(
+        models.NamingConvention.regexp
+    ).where(
+        and_(models.NamingConvention.scope == scope,
+             models.NamingConvention.convention_type == convention_type)
+    )
+    result = session.execute(stmt)
+    for row in result:
         return row[0]
 
 
@@ -88,9 +93,13 @@ def delete_naming_convention(scope, convention_type, *, session: "Session"):
     :param session: The database session in use.
     """
     REGION.delete(scope.internal)
-    return session.query(models.NamingConvention) \
-        .filter_by(scope=scope, convention_type=convention_type) \
-        .delete()
+    stmt = delete(
+        models.NamingConvention
+    ).where(
+        and_(models.NamingConvention.scope == scope,
+             models.NamingConvention.convention_type == convention_type)
+    )
+    return session.execute(stmt)
 
 
 @read_session
@@ -102,9 +111,12 @@ def list_naming_conventions(*, session: "Session"):
 
     :returns: a list of dictionaries.
     """
-    query = session.query(models.NamingConvention.scope,
-                          models.NamingConvention.regexp)
-    return [row._asdict() for row in query]
+    stmt = select(
+        models.NamingConvention.scope,
+        models.NamingConvention.regexp
+    )
+    result = session.execute(stmt)
+    return [row._asdict() for row in result]
 
 
 @read_session

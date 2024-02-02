@@ -16,7 +16,7 @@
 import datetime
 from typing import TYPE_CHECKING
 
-from sqlalchemy import and_, or_
+from sqlalchemy import and_, or_, select, delete
 from sqlalchemy.sql.expression import false, insert
 
 from rucio.common.utils import chunks
@@ -46,11 +46,16 @@ def add_quarantined_replicas(rse_id, replicas, *, session: "Session"):
                                     models.RSEFileAssociation.name == replica['name'],
                                     models.RSEFileAssociation.rse_id == rse_id))
     if file_clause:
-        file_query = session.query(models.RSEFileAssociation.scope,
-                                   models.RSEFileAssociation.name,
-                                   models.RSEFileAssociation.rse_id).\
-            with_hint(models.RSEFileAssociation, "index(REPLICAS REPLICAS_PK)", 'oracle').\
-            filter(or_(*file_clause))
+        stmt = select(
+            models.RSEFileAssociation.scope,
+            models.RSEFileAssociation.name,
+            models.RSEFileAssociation.rse_id
+        ).with_hint(
+            models.RSEFileAssociation, "index(REPLICAS REPLICAS_PK)", 'oracle'
+        ).where(
+            or_(*file_clause)
+        )
+        file_query = session.execute(stmt)
         existing_replicas = [(scope, name, rseid) for scope, name, rseid in file_query]
         replicas = [replica for replica in replicas if (replica.get('scope', None), replica.get('name', None), rse_id) not in existing_replicas]
 
@@ -60,9 +65,13 @@ def add_quarantined_replicas(rse_id, replicas, *, session: "Session"):
     for replica in replicas:
         quarantine_clause.append(and_(models.QuarantinedReplica.path == replica['path'],
                                       models.QuarantinedReplica.rse_id == rse_id))
-    quarantine_query = session.query(models.QuarantinedReplica.path,
-                                     models.QuarantinedReplica.rse_id).\
-        filter(or_(*quarantine_clause))
+    stmt = select(
+        models.QuarantinedReplica.path,
+        models.QuarantinedReplica.rse_id
+    ).where(
+        or_(*quarantine_clause)
+    )
+    quarantine_query = session.execute(stmt)
     quarantine_replicas = [(path, rseid) for path, rseid in quarantine_query]
     replicas = [replica for replica in replicas if (replica['path'], rse_id) not in quarantine_replicas]
 
@@ -91,10 +100,15 @@ def delete_quarantined_replicas(rse_id, replicas, *, session: "Session"):
         conditions.append(models.QuarantinedReplica.path == replica['path'])
 
     if conditions:
-        session.query(models.QuarantinedReplica).\
-            filter(models.QuarantinedReplica.rse_id == rse_id).\
-            filter(or_(*conditions)).\
-            delete(synchronize_session=False)
+        stmt = delete(
+            models.QuarantinedReplica
+        ).where(
+            and_(models.QuarantinedReplica.rse_id == rse_id,
+                 or_(*conditions))
+        ).execution_options(
+            synchronize_session=False
+        )
+        session.execute(stmt)
 
     if replicas:
         session.execute(
@@ -127,15 +141,18 @@ def list_quarantined_replicas(rse_id, limit, worker_number=None, total_workers=N
     quarantined_replicas = {}
     real_replicas = []
     dark_replicas = []
-    query = session.query(models.QuarantinedReplica.path,
-                          models.QuarantinedReplica.bytes,
-                          models.QuarantinedReplica.scope,
-                          models.QuarantinedReplica.name,
-                          models.QuarantinedReplica.created_at).\
-        filter(models.QuarantinedReplica.rse_id == rse_id)
-    query = filter_thread_work(session=session, query=query, total_threads=total_workers, thread_id=worker_number, hash_variable='path')
+    stmt = select(
+        models.QuarantinedReplica.path,
+        models.QuarantinedReplica.bytes,
+        models.QuarantinedReplica.scope,
+        models.QuarantinedReplica.name,
+        models.QuarantinedReplica.created_at
+    ).where(
+        models.QuarantinedReplica.rse_id == rse_id
+    ).limit(limit)
+    stmt = filter_thread_work(session=session, query=stmt, total_threads=total_workers, thread_id=worker_number, hash_variable='path')
 
-    for path, bytes_, scope, name, created_at in query.limit(limit):
+    for path, bytes_, scope, name, created_at in session.execute(stmt):
         if not (scope, name) in quarantined_replicas:
             quarantined_replicas[(scope, name)] = []
             replicas_clause.append(and_(models.RSEFileAssociation.scope == scope,
@@ -143,10 +160,16 @@ def list_quarantined_replicas(rse_id, limit, worker_number=None, total_workers=N
         quarantined_replicas[(scope, name)].append((path, bytes_, created_at))
 
     for chunk in chunks(replicas_clause, 20):
-        query = session.query(models.RSEFileAssociation.scope,
-                              models.RSEFileAssociation.name).\
-            filter(models.RSEFileAssociation.rse_id == rse_id).\
-            filter(or_(*chunk))
+        stmt = select(
+            models.RSEFileAssociation.scope,
+            models.RSEFileAssociation.name
+        ).with_hint(
+            models.RSEFileAssociation, "index(REPLICAS REPLICAS_PK)", 'oracle'
+        ).where(
+            and_(models.RSEFileAssociation.rse_id == rse_id,
+                 or_(*chunk))
+        )
+        query = session.execute(stmt)
 
         for scope, name in query.all():
             reps = quarantined_replicas.pop((scope, name))
@@ -180,11 +203,18 @@ def list_rses_with_quarantined_replicas(filters=None, *, session: "Session"):
 
     :returns: a list of RSEs.
     """
-    query = session.query(models.RSE.id).distinct(models.RSE.id).\
-        filter(models.QuarantinedReplica.rse_id == models.RSE.id).\
-        filter(models.RSE.deleted == false())
+    stmt = select(
+        models.RSE.id
+    ).distinct(
+        models.RSE.id
+    ).where(
+        and_(models.QuarantinedReplica.rse_id == models.RSE.id,
+             models.RSE.deleted == false())
+    )
 
     if filters and filters.get('vo'):
-        query = query.filter(getattr(models.RSE, 'vo') == filters.get('vo'))
+        stmt = stmt.where(getattr(models.RSE, 'vo') == filters.get('vo'))
 
-    return [rse for (rse,) in query]
+    result = session.execute(stmt)
+
+    return [rse for (rse,) in result]

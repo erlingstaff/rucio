@@ -581,10 +581,13 @@ def get_rse(rse_id, *, session: "Session"):
 
     false_value = False  # To make pep8 checker happy ...
     try:
-        tmp = session.query(models.RSE).\
-            filter(sqlalchemy.and_(models.RSE.deleted == false_value,
-                                   models.RSE.id == rse_id))\
-            .one()
+        stmt = select(
+            models.RSE
+        ).where(
+            and_(models.RSE.id == rse_id,
+                 models.RSE.deleted == false_value)
+        )
+        tmp = session.execute(stmt).scalars().one()
         return _format_get_rse(tmp, session=session)
     except sqlalchemy.orm.exc.NoResultFound:
         raise exception.RSENotFound('RSE with id \'%s\' cannot be found' % rse_id)

@@ -18,6 +18,7 @@ from typing import TYPE_CHECKING
 
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm.exc import NoResultFound
+from sqlalchemy import delete, select, and_
 
 from rucio.common.constraints import AUTHORIZED_VALUE_TYPES
 from rucio.common.exception import (Duplicate, RucioException,
@@ -88,7 +89,12 @@ def del_key(key, *, session: "Session"):
     :param key: the name for the key.
     :param session: The database session in use.
     """
-    session.query(models.DIDKey).filter(key == key).delete()
+    stmt = delete(
+        models.DIDKey
+    ).where(
+        models.DIDKey.key == key
+    )
+    session.execute(stmt)
 
 
 @read_session
@@ -101,8 +107,9 @@ def list_keys(*, session: "Session"):
     :returns: A list containing all keys.
     """
     key_list = []
-    query = session.query(models.DIDKey)
-    for row in query:
+    stmt = select(models.DIDKey)
+    result = session.execute(stmt).scalars().all()
+    for row in result:
         key_list.append(row.key)
     return key_list
 
@@ -137,7 +144,10 @@ def add_value(key, value, *, session: "Session"):
 
         raise RucioException(error.args)
 
-    k = session.query(models.DIDKey).filter_by(key=key).one()
+    stmt = select(models.DIDKey).where(
+        models.DIDKey.key == key
+    )
+    k = session.execute(stmt).scalars().one()
 
     # Check value against regexp, if defined
     if k.value_regexp and not match(k.value_regexp, value):
@@ -160,8 +170,13 @@ def list_values(key, *, session: "Session"):
     :returns: A list containing all values.
     """
     value_list = []
-    query = session.query(models.DIDKeyValueAssociation).filter_by(key=key)
-    for row in query:
+    stmt = select(
+        models.DIDKeyValueAssociation
+    ).where(
+        models.DIDKeyValueAssociation.key == key
+    )
+    result = session.execute(stmt).scalars().all()
+    for row in result:
         value_list.append(row.value)
     return value_list
 
@@ -181,10 +196,13 @@ def validate_meta(meta, did_type, *, session: "Session"):
     key = 'datatype'
     if did_type == DIDType.DATASET and key in meta:
         try:
-            session.query(models.DIDKeyValueAssociation.value).\
-                filter_by(key=key).\
-                filter_by(value=meta[key]).\
-                one()
+            stmt = select(
+                models.DIDKeyValueAssociation.value
+            ).where(
+                and_(models.DIDKeyValueAssociation.key == key,
+                     models.DIDKeyValueAssociation.value == meta[key])
+            )
+            session.execute(stmt).one()
         except NoResultFound:
             print("The value '%s' for the key '%s' is not valid" % (meta[key], key))
             raise InvalidObject("The value '%s' for the key '%s' is not valid" % (meta[key], key))

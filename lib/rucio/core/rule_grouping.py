@@ -19,6 +19,7 @@ from typing import TYPE_CHECKING
 
 from sqlalchemy import func
 from sqlalchemy.orm.exc import NoResultFound
+from sqlalchemy import select, and_
 
 import rucio.core.did
 import rucio.core.lock
@@ -256,9 +257,14 @@ def __apply_rule_to_files_none_grouping(datasetfiles, locks, replicas, source_re
         if dataset['scope'] is not None:
             for rse_id in list(set(selected_rse_ids)):
                 try:
-                    session.query(models.CollectionReplica).filter(models.CollectionReplica.scope == dataset['scope'],
-                                                                   models.CollectionReplica.name == dataset['name'],
-                                                                   models.CollectionReplica.rse_id == rse_id).one()
+                    stmt = select(
+                        models.CollectionReplica
+                    ).where(
+                        and_(models.CollectionReplica.scope == dataset['scope'],
+                             models.CollectionReplica.name == dataset['name'],
+                             models.CollectionReplica.rse_id == rse_id)
+                    )
+                    session.execute(stmt).one()
                 except NoResultFound:
                     models.CollectionReplica(scope=dataset['scope'],
                                              name=dataset['name'],
@@ -351,17 +357,28 @@ def __apply_rule_to_files_all_grouping(datasetfiles, locks, replicas, source_rep
             # Add a DatasetLock to the DB
             if dataset['scope'] is not None:
                 try:
-                    session.query(models.DatasetLock).filter(models.DatasetLock.scope == dataset['scope'],
-                                                             models.DatasetLock.name == dataset['name'],
-                                                             models.DatasetLock.rule_id == rule.id,
-                                                             models.DatasetLock.rse_id == rse_tuple[0]).one()
+                    stmt = select(
+                        models.DatasetLock
+                    ).where(
+                        and_(models.DatasetLock.scope == dataset['scope'],
+                             models.DatasetLock.name == dataset['name'],
+                             models.DatasetLock.rule_id == rule.id,
+                             models.DatasetLock.rse_id == rse_tuple[0])
+                    )
+                    session.execute(stmt).one()
                 except NoResultFound:
                     # Get dataset Information
                     is_open, bytes_, length = True, 0, 0
                     try:
-                        is_open, bytes_, length = session.query(models.DataIdentifier.is_open,
-                                                                models.DataIdentifier.bytes,
-                                                                models.DataIdentifier.length).filter_by(scope=dataset['scope'], name=dataset['name']).one()
+                        stmt = select(
+                            models.DataIdentifier.is_open,
+                            models.DataIdentifier.bytes,
+                            models.DataIdentifier.length
+                        ).where(
+                            and_(models.DataIdentifier.scope == dataset['scope'],
+                                 models.DataIdentifier.name == dataset['name'])
+                        )
+                        is_open, bytes_, length = session.execute(stmt).one()
                     except NoResultFound:
                         pass
 
@@ -376,9 +393,14 @@ def __apply_rule_to_files_all_grouping(datasetfiles, locks, replicas, source_rep
             # Add a Dataset Replica to the DB
             if dataset['scope'] is not None:
                 try:
-                    session.query(models.CollectionReplica).filter(models.CollectionReplica.scope == dataset['scope'],
-                                                                   models.CollectionReplica.name == dataset['name'],
-                                                                   models.CollectionReplica.rse_id == rse_tuple[0]).one()
+                    stmt = select(
+                        models.CollectionReplica
+                    ).where(
+                        and_(models.CollectionReplica.scope == dataset['scope'],
+                             models.CollectionReplica.name == dataset['name'],
+                             models.CollectionReplica.rse_id == rse_tuple[0])
+                    )
+                    session.execute(stmt).one()
                 except NoResultFound:
                     models.CollectionReplica(scope=dataset['scope'],
                                              name=dataset['name'],
@@ -468,17 +490,28 @@ def __apply_rule_to_files_dataset_grouping(datasetfiles, locks, replicas, source
             # Add a DatasetLock to the DB
             if dataset['scope'] is not None:
                 try:
-                    session.query(models.DatasetLock).filter(models.DatasetLock.scope == dataset['scope'],
-                                                             models.DatasetLock.name == dataset['name'],
-                                                             models.DatasetLock.rule_id == rule.id,
-                                                             models.DatasetLock.rse_id == rse_tuple[0]).one()
+                    stmt = select(
+                        models.DatasetLock
+                    ).where(
+                        and_(models.DatasetLock.scope == dataset['scope'],
+                             models.DatasetLock.name == dataset['name'],
+                             models.DatasetLock.rule_id == rule.id,
+                             models.DatasetLock.rse_id == rse_tuple[0])
+                    )
+                    session.execute(stmt).one()
                 except NoResultFound:
                     # Get dataset Information
                     is_open, bytes_, length = True, None, None
                     try:
-                        is_open, bytes_, length = session.query(models.DataIdentifier.is_open,
-                                                                models.DataIdentifier.bytes,
-                                                                models.DataIdentifier.length).filter_by(scope=dataset['scope'], name=dataset['name']).one()
+                        stmt = select(
+                            models.DataIdentifier.is_open,
+                            models.DataIdentifier.bytes,
+                            models.DataIdentifier.length
+                        ).where(
+                            and_(models.DataIdentifier.scope == dataset['scope'],
+                                 models.DataIdentifier.name == dataset['name'])
+                        )
+                        is_open, bytes_, length = session.execute(stmt).one()
                     except NoResultFound:
                         pass
 
@@ -494,9 +527,14 @@ def __apply_rule_to_files_dataset_grouping(datasetfiles, locks, replicas, source
             # Add a Dataset Replica to the DB
             if dataset['scope'] is not None:
                 try:
-                    session.query(models.CollectionReplica).filter(models.CollectionReplica.scope == dataset['scope'],
-                                                                   models.CollectionReplica.name == dataset['name'],
-                                                                   models.CollectionReplica.rse_id == rse_tuple[0]).one()
+                    stmt = select(
+                        models.CollectionReplica
+                    ).where(
+                        and_(models.CollectionReplica.scope == dataset['scope'],
+                             models.CollectionReplica.name == dataset['name'],
+                             models.CollectionReplica.rse_id == rse_tuple[0])
+                    )
+                    session.execute(stmt).one()
                 except NoResultFound:
                     models.CollectionReplica(scope=dataset['scope'],
                                              name=dataset['name'],
@@ -563,7 +601,14 @@ def __repair_stuck_locks_with_none_grouping(datasetfiles, locks, replicas, sourc
                     # Recalculate the replica_lock_cnt
                     associated_replica = [replica for replica in replicas[(file['scope'], file['name'])] if replica.state in [ReplicaState.AVAILABLE, ReplicaState.TEMPORARY_UNAVAILABLE] and replica.rse_id == lock.rse_id][0]
                     associated_replica.tombstone = None
-                    associated_replica.lock_cnt = session.query(func.count(models.ReplicaLock.rule_id)).filter_by(scope=associated_replica.scope, name=associated_replica.name, rse_id=lock.rse_id).one()[0]
+                    stmt = select(
+                        func.count(models.ReplicaLock.rule_id)
+                    ).where(
+                        and_(models.ReplicaLock.scope == associated_replica.scope,
+                             models.ReplicaLock.name == associated_replica.name,
+                             models.ReplicaLock.rse_id == associated_replica.rse_id)
+                    )
+                    associated_replica.lock_cnt = session.execute(stmt).scalar_one()
                     continue
                 # Check if this is a STUCK lock due to source_replica filtering
                 if source_rses:
@@ -670,7 +715,14 @@ def __repair_stuck_locks_with_all_grouping(datasetfiles, locks, replicas, source
                     # Recalculate the replica_lock_cnt
                     associated_replica = [replica for replica in replicas[(file['scope'], file['name'])] if replica.state in [ReplicaState.AVAILABLE, ReplicaState.TEMPORARY_UNAVAILABLE] and replica.rse_id == lock.rse_id][0]
                     associated_replica.tombstone = None
-                    associated_replica.lock_cnt = session.query(func.count(models.ReplicaLock.rule_id)).filter_by(scope=associated_replica.scope, name=associated_replica.name, rse_id=lock.rse_id).one()[0]
+                    stmt = select(
+                        func.count(models.ReplicaLock.rule_id)
+                    ).where(
+                        and_(models.ReplicaLock.scope == associated_replica.scope,
+                             models.ReplicaLock.name == associated_replica.name,
+                             models.ReplicaLock.rse_id == associated_replica.rse_id)
+                    )
+                    associated_replica.lock_cnt = session.execute(stmt).scalar_one()
                     continue
                 # Check if this is a STUCK lock due to source_replica filtering
                 if source_rses:
@@ -746,7 +798,14 @@ def __repair_stuck_locks_with_dataset_grouping(datasetfiles, locks, replicas, so
                     # Recalculate the replica_lock_cnt
                     associated_replica = [replica for replica in replicas[(file['scope'], file['name'])] if replica.state in [ReplicaState.AVAILABLE, ReplicaState.TEMPORARY_UNAVAILABLE] and replica.rse_id == lock.rse_id][0]
                     associated_replica.tombstone = None
-                    associated_replica.lock_cnt = session.query(func.count(models.ReplicaLock.rule_id)).filter_by(scope=associated_replica.scope, name=associated_replica.name, rse_id=lock.rse_id).one()[0]
+                    stmt = select(
+                        func.count(models.ReplicaLock.rule_id)
+                    ).where(
+                        and_(models.ReplicaLock.scope == associated_replica.scope,
+                             models.ReplicaLock.name == associated_replica.name,
+                             models.ReplicaLock.rse_id == associated_replica.rse_id)
+                    )
+                    associated_replica.lock_cnt = session.execute(stmt).scalar_one()
                     continue
                 # Check if this is a STUCK lock due to source_replica filtering
                 if source_rses:
@@ -1450,9 +1509,14 @@ def apply_rule(did, rule, rses, source_rses, rseselector, *, session: "Session",
 
                 # add dataset replica if not already existing (rule_id is not in PK)
                 try:
-                    session.query(models.CollectionReplica).filter(models.CollectionReplica.scope == ds_scope,
-                                                                   models.CollectionReplica.name == ds_name,
-                                                                   models.CollectionReplica.rse_id == u_rse).one()
+                    stmt = select(
+                        models.CollectionReplica
+                    ).where(
+                        and_(models.CollectionReplica.scope == ds_scope,
+                             models.CollectionReplica.name == ds_name,
+                             models.CollectionReplica.rse_id == u_rse)
+                    )
+                    session.execute(stmt).one()
                 except NoResultFound:
                     models.CollectionReplica(scope=ds_scope, name=ds_name, did_type=DIDType.DATASET,
                                              rse_id=u_rse,
