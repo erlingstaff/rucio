@@ -297,7 +297,8 @@ def attach_dids_to_dids(
             update_parent = False
 
             if not first_iteration:
-                session.query(children_temp_table).delete()
+                stmt = delete(children_temp_table)
+                session.execute(stmt)
             session.execute(insert(children_temp_table), [{'scope': s, 'name': n} for s, n in children])
 
             if parent_did.did_type == DIDType.FILE:

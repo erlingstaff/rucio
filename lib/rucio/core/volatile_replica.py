@@ -17,7 +17,7 @@
 from datetime import datetime
 from typing import TYPE_CHECKING
 
-from sqlalchemy import and_, or_, exists, update, insert
+from sqlalchemy import and_, or_, exists, update, insert, delete
 from sqlalchemy.orm.exc import NoResultFound
 from sqlalchemy.sql.expression import select
 
@@ -43,7 +43,13 @@ def add_volatile_replicas(rse_id, replicas, *, session: "Session"):
     """
     # first check that the rse is a volatile one
     try:
-        session.query(models.RSE).filter_by(id=rse_id, volatile=True).one()
+        stmt = select(
+            models.RSE
+        ).where(
+            and_(models.RSE.id == rse_id,
+                 models.RSE.volatile == True)  # noqa: E712
+        )
+        session.execute(stmt).scalar_one()
     except NoResultFound:
         raise exception.UnsupportedOperation('No volatile rse found for %s !'
                                              % get_rse_name(rse_id=rse_id, session=session))
@@ -69,12 +75,16 @@ def add_volatile_replicas(rse_id, replicas, *, session: "Session"):
         session.execute(stmt)
 
     if file_clause:
-        file_query = session.query(models.DataIdentifier.scope,
-                                   models.DataIdentifier.name,
-                                   models.DataIdentifier.bytes,
-                                   models.DataIdentifier.md5,
-                                   models.DataIdentifier.adler32).\
-            filter(or_(*file_clause))
+        stmt = select(
+            models.DataIdentifier.scope,
+            models.DataIdentifier.name,
+            models.DataIdentifier.bytes,
+            models.DataIdentifier.md5,
+            models.DataIdentifier.adler32
+        ).where(
+            or_(*file_clause)
+        )
+        files = session.execute(stmt).all()
 
         new_replicas = [
             {
@@ -88,7 +98,7 @@ def add_volatile_replicas(rse_id, replicas, *, session: "Session"):
                 'bytes': bytes_,
                 'md5': md5
             }
-            for scope, name, bytes_, md5, adler32 in file_query
+            for scope, name, bytes_, md5, adler32 in files
         ]
         if new_replicas:
             session.execute(insert(models.RSEFileAssociation), new_replicas)
@@ -106,7 +116,13 @@ def delete_volatile_replicas(rse_id, replicas, *, session: "Session"):
     """
     # first check that the rse is a volatile one
     try:
-        session.query(models.RSE).filter_by(id=rse_id, volatile=True).one()
+        stmt = select(
+            models.RSE
+        ).where(
+            and_(models.RSE.id == rse_id,
+                 models.RSE.volatile == True)  # noqa: E712
+        )
+        session.execute(stmt).scalar_one()
     except NoResultFound:
         raise exception.UnsupportedOperation('No volatile rse found for %s !'
                                              % get_rse_name(rse_id=rse_id, session=session))
@@ -117,7 +133,12 @@ def delete_volatile_replicas(rse_id, replicas, *, session: "Session"):
                                models.RSEFileAssociation.name == replica['name']))
 
     if conditions:
-        session.query(models.RSEFileAssociation).\
-            filter(models.RSEFileAssociation.rse_id == rse_id).\
-            filter(or_(*conditions)).\
-            delete(synchronize_session=False)
+        stmt = delete(
+            models.RSEFileAssociation
+        ).where(
+            and_(models.RSEFileAssociation.rse_id == rse_id,
+                 or_(*conditions))
+        ).execution_options(
+            synchronize_session=False
+        )
+        session.execute(stmt)

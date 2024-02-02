@@ -16,6 +16,7 @@
 import re
 from typing import TYPE_CHECKING
 
+from sqlalchemy import select
 from sqlalchemy.exc import DatabaseError, IntegrityError
 from sqlalchemy.orm.exc import NoResultFound
 
@@ -43,7 +44,13 @@ def vo_exists(vo, *, session: "Session"):
 
     :returns: True if the vo is in the vo table, False otherwise
     """
-    return True if session.query(models.VO).filter_by(vo=vo).first() else False
+    stmt = select(
+        models.VO.vo
+    ).where(
+        models.VO.vo == vo
+    )
+    result = session.execute(stmt).first()
+    return True if result else False
 
 
 @transactional_session
@@ -99,10 +106,11 @@ def list_vos(*, session: "Session"):
     if not config_get_bool('common', 'multi_vo', raise_exception=False, default=False):
         raise exception.UnsupportedOperation('VO operations cannot be performed in single VO mode.')
 
-    query = session.query(models.VO)
+    stmt = select(models.VO)
+    result = session.execute(stmt).scalars().all()
 
     vos = []
-    for vo in query.all():
+    for vo in result:
         vo_dict = {'vo': vo.vo,
                    'description': vo.description,
                    'email': vo.email,
@@ -126,14 +134,19 @@ def update_vo(vo, parameters, *, session: "Session"):
         raise exception.UnsupportedOperation('VO operations cannot be performed in single VO mode.')
 
     try:
-        query = session.query(models.VO).filter_by(vo=vo).one()
+        stmt = select(
+            models.VO
+        ).where(
+            models.VO.vo == vo
+        )
+        result = session.execute(stmt).scalar_one()
     except NoResultFound:
         raise exception.VONotFound('VO {} not found'.format(vo))
     param = {}
     for key in parameters:
         if key in ['email', 'description']:
             param[key] = parameters[key]
-    query.update(param)
+    result.update(param)
 
 
 def map_vo(vo):
