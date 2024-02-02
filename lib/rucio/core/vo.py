@@ -45,7 +45,7 @@ def vo_exists(vo, *, session: "Session"):
     :returns: True if the vo is in the vo table, False otherwise
     """
     stmt = select(
-        models.VO.vo
+        models.VO
     ).where(
         models.VO.vo == vo
     )
