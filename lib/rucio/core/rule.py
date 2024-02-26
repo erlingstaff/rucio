@@ -1675,7 +1675,7 @@ def move_rule(rule_id: str, rse_expression: str, override: Optional[dict[str, An
 
 
 @transactional_session
-def re_evaluate_did(scope, name, rule_evaluation_action, *, session: "Session"):
+def re_evaluate_did(scope, name, rule_evaluation_action, *, session: "Session", logger=logging.log):
     """
     Re-Evaluates a did.
 
@@ -1693,9 +1693,9 @@ def re_evaluate_did(scope, name, rule_evaluation_action, *, session: "Session"):
         raise DataIdentifierNotFound() from exc
 
     if rule_evaluation_action == DIDReEvaluation.ATTACH:
-        __evaluate_did_attach(did, session=session)
+        __evaluate_did_attach(did, session=session, logger=logger)
     else:
-        __evaluate_did_detach(did, session=session)
+        __evaluate_did_detach(did, session=session, logger=logger)
 
     # Update size and length of did
     if session.bind.dialect.name == 'oracle':
