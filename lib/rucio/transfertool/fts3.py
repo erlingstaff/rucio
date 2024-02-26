@@ -102,7 +102,7 @@ PATH_CHECKSUM_VALIDATION_STRATEGY: dict[tuple[str, str], str] = {
     ('none', 'none'): 'none',
 }
 
-_SCITAGS_NEXT_REFRESH = datetime.datetime.utcnow()
+_SCITAGS_NEXT_REFRESH = datetime.datetime.now(datetime.timezone.utc)
 _SCITAGS_EXP_ID = None
 _SCITAGS_ACTIVITY_IDS = {}
 
@@ -115,7 +115,7 @@ def _scitags_ids(logger: Callable[..., Any] = logging.log) -> "tuple[int | None,
     if not enabled:
         return None, {}
 
-    now = datetime.datetime.utcnow()
+    now = datetime.datetime.now(datetime.timezone.utc)
     global _SCITAGS_ACTIVITY_IDS
     global _SCITAGS_EXP_ID
     global _SCITAGS_NEXT_REFRESH

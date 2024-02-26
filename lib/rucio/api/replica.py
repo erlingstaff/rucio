@@ -457,8 +457,8 @@ def add_bad_pfns(pfns, issuer, state, reason=None, expires_at=None, vo='def', *,
     if not permission.has_permission(issuer=issuer, vo=vo, action='add_bad_pfns', kwargs=kwargs, session=session):
         raise exception.AccessDenied('Account %s can not declare bad PFNs' % (issuer))
 
-    if expires_at and datetime.datetime.utcnow() <= expires_at and expires_at > datetime.datetime.utcnow() + datetime.timedelta(days=30):
-        raise exception.InputValidationError('The given duration of %s days exceeds the maximum duration of 30 days.' % (expires_at - datetime.datetime.utcnow()).days)
+    if expires_at and datetime.datetime.now(datetime.timezone.utc) <= expires_at and expires_at > datetime.datetime.now(datetime.timezone.utc) + datetime.timedelta(days=30):
+        raise exception.InputValidationError('The given duration of %s days exceeds the maximum duration of 30 days.' % (expires_at - datetime.datetime.now(datetime.timezone.utc)).days)
 
     issuer = InternalAccount(issuer, vo=vo)
 

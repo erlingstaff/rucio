@@ -119,7 +119,7 @@ def live(executable, hostname, pid, thread=None, older_than=600, hash_executable
                    hostname=hostname,
                    pid=pid,
                    thread_id=thread_id)\
-        .update({'updated_at': datetime.datetime.utcnow(), 'payload': payload})
+        .update({'updated_at': datetime.datetime.now(datetime.timezone.utc), 'payload': payload})
     if not rowcount:
         Heartbeats(executable=hash_executable,
                    readable=executable[:Heartbeats.readable.property.columns[0].type.length],
@@ -135,7 +135,7 @@ def live(executable, hostname, pid, thread=None, older_than=600, hash_executable
                           Heartbeats.thread_id)\
                    .with_hint(Heartbeats, "index(HEARTBEATS HEARTBEATS_PK)", 'oracle')\
                    .filter(Heartbeats.executable == hash_executable)\
-                   .filter(Heartbeats.updated_at >= datetime.datetime.utcnow() - datetime.timedelta(seconds=older_than))\
+                   .filter(Heartbeats.updated_at >= datetime.datetime.now(datetime.timezone.utc) - datetime.timedelta(seconds=older_than))\
                    .group_by(Heartbeats.hostname,
                              Heartbeats.pid,
                              Heartbeats.thread_id)\
@@ -180,7 +180,7 @@ def die(executable, hostname, pid, thread, older_than=None, hash_executable=None
                                                 thread_id=thread.ident)
 
     if older_than:
-        query = query.filter(Heartbeats.updated_at < datetime.datetime.utcnow() - datetime.timedelta(seconds=older_than))
+        query = query.filter(Heartbeats.updated_at < datetime.datetime.now(datetime.timezone.utc) - datetime.timedelta(seconds=older_than))
 
     query.delete()
 
@@ -197,7 +197,7 @@ def cardiac_arrest(older_than=None, *, session: "Session"):
     query = session.query(Heartbeats)
 
     if older_than:
-        query = query.filter(Heartbeats.updated_at < datetime.datetime.utcnow() - datetime.timedelta(seconds=older_than))
+        query = query.filter(Heartbeats.updated_at < datetime.datetime.now(datetime.timezone.utc) - datetime.timedelta(seconds=older_than))
 
     query.delete()
 
@@ -247,7 +247,7 @@ def list_payload_counts(executable, older_than=600, hash_executable=None, *, ses
     query = session.query(Heartbeats.payload,
                           func.count(Heartbeats.payload))\
                    .filter(Heartbeats.executable == hash_executable)\
-                   .filter(Heartbeats.updated_at >= datetime.datetime.utcnow() - datetime.timedelta(seconds=older_than))\
+                   .filter(Heartbeats.updated_at >= datetime.datetime.now(datetime.timezone.utc) - datetime.timedelta(seconds=older_than))\
                    .group_by(Heartbeats.payload)\
                    .order_by(Heartbeats.payload)
 

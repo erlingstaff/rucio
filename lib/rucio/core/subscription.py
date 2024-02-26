@@ -88,7 +88,7 @@ def add_subscription(name: str,
     if retroactive:
         state = SubscriptionState.NEW
     if lifetime:
-        date_lifetime = datetime.datetime.utcnow() + datetime.timedelta(days=lifetime)
+        date_lifetime = datetime.datetime.now(datetime.timezone.utc) + datetime.timedelta(days=lifetime)
     else:
         date_lifetime = None
     new_subscription = models.Subscription(name=name,
@@ -155,7 +155,7 @@ def update_subscription(name: str,
     if 'replication_rules' in metadata and metadata['replication_rules']:
         values['replication_rules'] = dumps(metadata['replication_rules'])
     if 'lifetime' in metadata and metadata['lifetime']:
-        values['lifetime'] = datetime.datetime.utcnow() + datetime.timedelta(days=float(metadata['lifetime']))
+        values['lifetime'] = datetime.datetime.now(datetime.timezone.utc) + datetime.timedelta(days=float(metadata['lifetime']))
     if 'retroactive' in metadata and metadata['retroactive']:
         values['retroactive'] = metadata['retroactive']
     if 'dry_run' in metadata and metadata['dry_run']:
@@ -168,7 +168,7 @@ def update_subscription(name: str,
         values['last_processed'] = metadata['last_processed']
     if 'state' in metadata and metadata['state'] == SubscriptionState.INACTIVE:
         values['state'] = SubscriptionState.INACTIVE
-        values['expired_at'] = datetime.datetime.utcnow()
+        values['expired_at'] = datetime.datetime.now(datetime.timezone.utc)
 
     SubscriptionHistory = models.SubscriptionHistory
     try:

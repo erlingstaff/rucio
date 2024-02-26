@@ -130,7 +130,7 @@ class RequestWithSources:
         self.retry_count = retry_count or 0
         self.priority = priority if priority is not None else 3
         self.transfertool = transfertool
-        self.requested_at = requested_at if requested_at else datetime.datetime.utcnow()
+        self.requested_at = requested_at if requested_at else datetime.datetime.now(datetime.timezone.utc)
 
         self.sources: list[RequestSource] = []
         self.requested_source: Optional[RequestSource] = None
@@ -392,7 +392,7 @@ def queue_requests(requests, *, session: "Session", logger=logging.log):
                    'bytes': request['attributes']['bytes'],
                    'checksum-md5': request['attributes']['md5'],
                    'checksum-adler': request['attributes']['adler32'],
-                   'queued_at': str(datetime.datetime.utcnow())}
+                   'queued_at': str(datetime.datetime.now(datetime.timezone.utc))}
 
         messages.append({'event_type': transfer_status,
                          'payload': payload})
@@ -502,7 +502,7 @@ def list_and_mark_transfer_requests_and_source_replicas(
             or_(
                 models.Request.last_processed_by.is_(null()),
                 models.Request.last_processed_by != processed_by,
-                models.Request.last_processed_at < datetime.datetime.utcnow() - datetime.timedelta(seconds=processed_at_delay)
+                models.Request.last_processed_at < datetime.datetime.now(datetime.timezone.utc) - datetime.timedelta(seconds=processed_at_delay)
             )
         )
 
@@ -760,7 +760,7 @@ def get_and_mark_next(
                 or_(
                     models.Request.last_processed_by.is_(null()),
                     models.Request.last_processed_by != processed_by,
-                    models.Request.last_processed_at < datetime.datetime.utcnow() - datetime.timedelta(seconds=processed_at_delay)
+                    models.Request.last_processed_at < datetime.datetime.now(datetime.timezone.utc) - datetime.timedelta(seconds=processed_at_delay)
                 )
             )
         if transfertool:
@@ -878,7 +878,7 @@ def update_request(
     rowcount = 0
     try:
         update_items: dict[Any, Any] = {
-            models.Request.updated_at: datetime.datetime.utcnow()
+            models.Request.updated_at: datetime.datetime.now(datetime.timezone.utc)
         }
         if state is not None:
             update_items[models.Request.state] = state
@@ -1019,11 +1019,11 @@ def touch_requests_by_rule(rule_id, *, session: "Session"):
         ).where(
             models.Request.rule_id == rule_id,
             models.Request.state.in_([RequestState.FAILED, RequestState.DONE, RequestState.LOST, RequestState.NO_SOURCES, RequestState.ONLY_TAPE_SOURCES]),
-            models.Request.updated_at < datetime.datetime.utcnow()
+            models.Request.updated_at < datetime.datetime.now(datetime.timezone.utc)
         ).execution_options(
             synchronize_session=False
         ).values(
-            updated_at=datetime.datetime.utcnow() + datetime.timedelta(minutes=20)
+            updated_at=datetime.datetime.now(datetime.timezone.utc) + datetime.timedelta(minutes=20)
         )
         session.execute(stmt)
     except IntegrityError as error:
@@ -1391,7 +1391,7 @@ class TransferStatsManager:
 
         self.current_timestamp = datetime.datetime(year=1970, month=1, day=1)
         self.current_samples = defaultdict()
-        self._rollover_samples(rollover_time=datetime.datetime.utcnow())
+        self._rollover_samples(rollover_time=datetime.datetime.now(datetime.timezone.utc))
 
         self.record_stats = True
         self.save_timer = None
@@ -1438,7 +1438,7 @@ class TransferStatsManager:
         """
         if not self.record_stats:
             return
-        now = datetime.datetime.utcnow()
+        now = datetime.datetime.now(datetime.timezone.utc)
         with self.lock:
             save_timestamp, save_samples = now, {}
             if now >= self.current_timestamp + self.raw_resolution:
@@ -1469,7 +1469,7 @@ class TransferStatsManager:
         self.save_timer = threading.Timer(self.raw_resolution.total_seconds(), self.periodic_save)
         self.save_timer.start()
 
-        now = datetime.datetime.utcnow()
+        now = datetime.datetime.now(datetime.timezone.utc)
         with self.lock:
             save_timestamp, save_samples = now, {}
             if now >= self.current_timestamp + self.raw_resolution:
@@ -1486,7 +1486,7 @@ class TransferStatsManager:
         Only to be used for the final save operation on shutdown.
         """
         with self.lock:
-            save_timestamp, save_samples = self._rollover_samples(datetime.datetime.utcnow())
+            save_timestamp, save_samples = self._rollover_samples(datetime.datetime.now(datetime.timezone.utc))
         if save_samples:
             self._save_samples(timestamp=save_timestamp, samples=save_samples, session=session)
 
@@ -1563,7 +1563,7 @@ class TransferStatsManager:
         """
 
         # Delay processing to leave time for all raw metrics to be correctly saved to the database
-        now = datetime.datetime.utcnow() - 4 * self.raw_resolution
+        now = datetime.datetime.now(datetime.timezone.utc) - 4 * self.raw_resolution
 
         db_time_ranges = self._db_time_ranges(session=session)
 
@@ -1835,7 +1835,7 @@ class TransferStatsManager:
         """
 
         if start_time is None:
-            start_time = datetime.datetime.utcnow()
+            start_time = datetime.datetime.now(datetime.timezone.utc)
         newer_t = datetime.datetime.fromtimestamp(int(start_time.timestamp()) // resolution.total_seconds() * resolution.total_seconds())
         older_t = newer_t - resolution
         while not end_time or older_t >= end_time:
@@ -1853,7 +1853,7 @@ def get_request_metrics(
         session: "Session"
 ):
     metrics = {}
-    now = datetime.datetime.utcnow()
+    now = datetime.datetime.now(datetime.timezone.utc)
 
     # Add the current queues
     db_stats = get_request_stats(
@@ -2012,7 +2012,7 @@ def release_waiting_requests_per_deadline(
             grouped_requests_subquery.c.scope,
             grouped_requests_subquery.c.oldest_requested_at
         ).where(
-            grouped_requests_subquery.c.oldest_requested_at < datetime.datetime.utcnow() - datetime.timedelta(hours=deadline)
+            grouped_requests_subquery.c.oldest_requested_at < datetime.datetime.now(datetime.timezone.utc) - datetime.timedelta(hours=deadline)
         ).subquery()
 
         old_requests_subquery = select(
@@ -2897,7 +2897,7 @@ def reset_stale_waiting_requests(time_limit: Optional[datetime.timedelta] = date
     """
     try:
         # Cutoff timestamp based on time limit
-        time_limit_timestamp = datetime.datetime.utcnow() - time_limit
+        time_limit_timestamp = datetime.datetime.now(datetime.timezone.utc) - time_limit
 
         # Select all waiting requests that precede the time limit, then clear source_rse_id and reset state to preparing
         stmt = update(

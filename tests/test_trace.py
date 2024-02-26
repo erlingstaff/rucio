@@ -36,7 +36,7 @@ def test_submit_trace(rest_client):
                'float': 3.14,
                'long': 314314314314314314,
                'timestamp': time.time(),
-               'datetime_str': str(datetime.datetime.utcnow()),  # str, because not JSON serializable
+               'datetime_str': str(datetime.datetime.now(datetime.timezone.utc)),  # str, because not JSON serializable
                'boolean': True}
 
     response = rest_client.post('/traces/', json=payload, content_type=[('Content-Type', 'application/octet-stream')])

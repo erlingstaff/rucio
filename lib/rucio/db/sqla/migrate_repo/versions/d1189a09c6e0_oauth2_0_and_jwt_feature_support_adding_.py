@@ -72,7 +72,7 @@ def upgrade():
                      sa.Column('redirect_msg', sa.String(2048)),
                      sa.Column('refresh_lifetime', sa.Integer(), nullable=True),
                      sa.Column('ip', sa.String(39), nullable=True),
-                     sa.Column('expired_at', sa.DateTime(), default=datetime.datetime.utcnow() + datetime.timedelta(seconds=600)),
+                     sa.Column('expired_at', sa.DateTime(), default=datetime.datetime.now(datetime.timezone.utc) + datetime.timedelta(seconds=600)),
                      sa.Column('created_at', sa.DateTime, default=datetime.datetime.utcnow),
                      sa.Column('updated_at', sa.DateTime, default=datetime.datetime.utcnow, onupdate=datetime.datetime.utcnow))
         create_primary_key('OAUTH_REQUESTS_STATE_PK', 'oauth_requests', ['state'])

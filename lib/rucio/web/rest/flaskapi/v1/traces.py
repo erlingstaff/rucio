@@ -69,7 +69,7 @@ class Trace(ErrorHandlingMethodView):
         payload = json_parameters()
 
         # generate entry timestamp
-        payload['traceTimeentry'] = datetime.datetime.utcnow()
+        payload['traceTimeentry'] = datetime.datetime.now(datetime.timezone.utc)
         payload['traceTimeentryUnix'] = calendar.timegm(payload['traceTimeentry'].timetuple()) + payload['traceTimeentry'].microsecond / 1e6
 
         # guess client IP
