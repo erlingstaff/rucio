@@ -444,7 +444,7 @@ def list_rebalance_rule_candidates(rse_id, mode=None, *, session=None):
              *did_clause,
              bytes_per_length > 1000000000,
              count_locks == 1))
-    summary = session.execute(stmt).all()
+    summary = session.execute(stmt).all()  # type: ignore[reportOptionalMemberAccess]
     return summary
 
 
@@ -703,7 +703,7 @@ def get_active_locks(*, session=None):
              or_(models.ReplicationRule.state == RuleState.REPLICATING,
                  models.ReplicationRule.state == RuleState.STUCK))
     )
-    rule_ids = session.execute(stmt).scalars()
+    rule_ids = session.execute(stmt).scalars()  # type: ignore[reportOptionalMemberAccess]
     for row in rule_ids:
         stmt = select(
             func.count(),
@@ -715,7 +715,7 @@ def get_active_locks(*, session=None):
                  models.ReplicaLock.state != LockState.OK)
         ).group_by(models.ReplicaLock.state, models.ReplicaLock.rse_id)
 
-        for lock in session.execute(stmt).all():
+        for lock in session.execute(stmt).all():  # type: ignore[reportOptionalMemberAccess]:
             cnt, size, _, rse_id = lock
             if rse_id not in locks_dict:
                 locks_dict[rse_id] = {"bytes": 0, "locks": 0}
