@@ -118,7 +118,9 @@ def reset_config_table():
     """ Clear the config table and install any default entires needed for the tests.
     """
     db_session = get_session()
-    db_session.query(models.Config).delete()
+    stmt = delete(models.Config)
+    db_session.execute(stmt)
+    # db_session.query(models.Config).delete()
     db_session.commit()
     core_config.set("vo-map", "testvo1", "tst")
     core_config.set("vo-map", "testvo2", "ts2")

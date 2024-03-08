@@ -17,7 +17,7 @@
 This script is to be used to background rebalance ATLAS t2 datadisks
 """
 
-from sqlalchemy import or_
+from sqlalchemy import or_, select, and_
 
 from rucio.core.rse import get_rse_usage, get_rse_attribute
 from rucio.core.rse_expression_parser import parse_expression
@@ -81,8 +81,18 @@ rses_over_ratio = sorted([rse for rse in rses if rse['ratio'] > global_ratio + g
 rses_under_ratio = sorted([rse for rse in rses if rse['ratio'] < global_ratio - global_ratio * tolerance], key=lambda k: k['ratio'], reverse=False)
 
 session = get_session()
-active_rses = session.query(models.ReplicationRule.rse_expression).filter(or_(models.ReplicationRule.state == RuleState.REPLICATING, models.ReplicationRule.state == RuleState.STUCK),
-                                                                          models.ReplicationRule.comments == 'T2 Background rebalancing').group_by(models.ReplicationRule.rse_expression).all()
+stmt = select(
+    models.ReplicationRule.rse_expression
+).where(
+    and_(models.ReplicationRule.comments == 'T2 Background rebalancing',
+         or_(models.ReplicationRule.state == RuleState.REPLICATING,
+             models.ReplicationRule.state == RuleState.STUCK))
+).group_by(
+    models.ReplicationRule.rse_expression
+)
+active_rses = session.execute(stmt).fetchall()
+# active_rses = session.query(models.ReplicationRule.rse_expression).filter(or_(models.ReplicationRule.state == RuleState.REPLICATING, models.ReplicationRule.state == RuleState.STUCK),
+#                                                                           models.ReplicationRule.comments == 'T2 Background rebalancing').group_by(models.ReplicationRule.rse_expression).all()
 
 # Excluding RSEs
 print('Excluding RSEs as destination which have active Background Rebalancing rules:')

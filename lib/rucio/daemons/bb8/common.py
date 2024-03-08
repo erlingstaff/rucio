@@ -18,9 +18,9 @@ from datetime import datetime, date, timedelta
 from string import Template
 
 from requests import get
-from sqlalchemy import func, and_, or_, cast, BigInteger
+from sqlalchemy import func, and_, or_, cast, BigInteger, select
 from sqlalchemy.orm import aliased
-from sqlalchemy.sql.expression import case, select
+from sqlalchemy.sql.expression import case
 
 from rucio.common.config import config_get, config_get_int, config_get_bool
 from rucio.common.exception import (
@@ -393,7 +393,7 @@ def list_rebalance_rule_candidates(rse_id, mode=None, *, session=None):
     if only_move_closed_did:
         did_clause.append(models.DataIdentifier.is_open == False)  # NOQA
 
-    # Now build the query
+    # # Now build the query
     external_dsl = aliased(models.DatasetLock)
     count_locks = (
         select(func.count())
@@ -406,74 +406,45 @@ def list_rebalance_rule_candidates(rse_id, mode=None, *, session=None):
         )
         .as_scalar()
     )
-    query = (
-        session.query(
-            models.DatasetLock.scope,
-            models.DatasetLock.name,
-            models.ReplicationRule.id,
-            models.ReplicationRule.rse_expression,
-            models.ReplicationRule.subscription_id,
-            models.DataIdentifier.bytes,
-            models.DataIdentifier.length,
-            case(
-                (
-                    or_(
-                        models.DatasetLock.length < 1,
-                        models.DatasetLock.length.is_(None),
-                    ),
-                    0,
-                ),
-                else_=cast(
-                    models.DatasetLock.bytes / models.DatasetLock.length, BigInteger
-                ),
+
+    # Reusable case condition
+    bytes_per_length = case(
+        (
+            or_(
+                models.DatasetLock.length < 1,
+                models.DatasetLock.length.is_(None),
             ),
-        )
-        .join(
-            models.ReplicationRule,
-            models.ReplicationRule.id == models.DatasetLock.rule_id,
-        )
-        .join(
-            models.DataIdentifier,
-            and_(
-                models.DatasetLock.scope == models.DataIdentifier.scope,
-                models.DatasetLock.name == models.DataIdentifier.name,
-            ),
-        )
-        .filter(models.DatasetLock.rse_id == rse_id)
-        .filter(and_(*rule_clause))
-        .filter(and_(*did_clause))
-        .filter(
-            case(
-                (
-                    or_(
-                        models.DatasetLock.length < 1,
-                        models.DatasetLock.length.is_(None),
-                    ),
-                    0,
-                ),
-                else_=cast(
-                    models.DatasetLock.bytes / models.DatasetLock.length, BigInteger
-                ),
-            )
-            > 1000000000
-        )
-        .filter(count_locks == 1)
-    )
-    summary = query.order_by(
-        case(
-            (
-                or_(
-                    models.DatasetLock.length < 1,
-                    models.DatasetLock.length.is_(None),
-                ),
-                0,
-            ),
-            else_=cast(
-                models.DatasetLock.bytes / models.DatasetLock.length, BigInteger
-            ),
+            0,
         ),
-        models.DatasetLock.accessed_at,
-    ).all()
+        else_=cast(
+            models.DatasetLock.bytes / models.DatasetLock.length, BigInteger
+        ),
+    )
+
+    stmt = select(
+        models.DatasetLock.scope,
+        models.DatasetLock.name,
+        models.ReplicationRule.id,
+        models.ReplicationRule.rse_expression,
+        models.ReplicationRule.subscription_id,
+        models.DataIdentifier.bytes,
+        models.DataIdentifier.length,
+        bytes_per_length,
+    ).join(
+        models.ReplicationRule, models.ReplicationRule.id == models.DatasetLock.rule_id
+    ).join(
+        models.DataIdentifier,
+        and_(
+            models.DatasetLock.scope == models.DataIdentifier.scope,
+            models.DatasetLock.name == models.DataIdentifier.name,
+        )
+    ).where(
+        and_(models.DatasetLock.rse_id == rse_id,
+             *rule_clause,
+             *did_clause,
+             bytes_per_length > 1000000000,
+             count_locks == 1))
+    summary = session.execute(stmt).all()
     return summary
 
 
@@ -725,35 +696,26 @@ def rebalance_rse(
 @read_session
 def get_active_locks(*, session=None):
     locks_dict = {}
-    rule_ids = (
-        session.query(models.ReplicationRule.id)
-        .filter(
-            or_(
-                models.ReplicationRule.state == RuleState.REPLICATING,
-                models.ReplicationRule.state == RuleState.STUCK,
-            ),
-            models.ReplicationRule.comments == "Background rebalancing",
-        )
-        .all()
+    stmt = select(
+        models.ReplicationRule.id
+    ).where(
+        and_(models.ReplicationRule.comments == "Background rebalancing",
+             or_(models.ReplicationRule.state == RuleState.REPLICATING,
+                 models.ReplicationRule.state == RuleState.STUCK))
     )
+    rule_ids = session.execute(stmt).scalars()
     for row in rule_ids:
-        rule_id = row[0]
-        query = (
-            session.query(
-                func.count(),
-                func.sum(models.ReplicaLock.bytes),
-                models.ReplicaLock.state,
-                models.ReplicaLock.rse_id,
-            )
-            .filter(
-                and_(
-                    models.ReplicaLock.rule_id == rule_id,
-                    models.ReplicaLock.state != LockState.OK,
-                )
-            )
-            .group_by(models.ReplicaLock.state, models.ReplicaLock.rse_id)
-        )
-        for lock in query.all():
+        stmt = select(
+            func.count(),
+            func.sum(models.ReplicaLock.bytes),
+            models.ReplicaLock.state,
+            models.ReplicaLock.rse_id,
+        ).where(
+            and_(models.ReplicaLock.rule_id == row,
+                 models.ReplicaLock.state != LockState.OK)
+        ).group_by(models.ReplicaLock.state, models.ReplicaLock.rse_id)
+
+        for lock in session.execute(stmt).all():
             cnt, size, _, rse_id = lock
             if rse_id not in locks_dict:
                 locks_dict[rse_id] = {"bytes": 0, "locks": 0}

@@ -23,7 +23,7 @@ import sqlalchemy
 from alembic import command, op
 from alembic.config import Config
 from dogpile.cache.api import NoValue
-from sqlalchemy import func, inspect, Column, PrimaryKeyConstraint
+from sqlalchemy import func, inspect, Column, PrimaryKeyConstraint, delete
 from sqlalchemy.dialects.postgresql.base import PGInspector
 from sqlalchemy.exc import IntegrityError, DatabaseError
 from sqlalchemy.orm import declarative_base
@@ -433,7 +433,9 @@ def _create_temp_table(name, *columns, primary_key=None, oracle_global_name=None
         # executed by sqlalchemy within the same session (which is being re-used now)
         # This is not the case for oracle and postgresql thanks to their "on_commit" support.
         session.execute(CreateTable(table, if_not_exists=True))
-        session.query(DeclarativeObj).delete()
+        stmt = delete(DeclarativeObj)
+        session.execute(stmt)
+        # session.query(DeclarativeObj).delete()
     return DeclarativeObj
 
 
