@@ -226,9 +226,9 @@ def get_replica_locks_for_rule_id_per_rse(rule_id, *, session: "Session"):
     )
     result = session.execute(stmt).scalars().all()
 
-    for res_id in result:
-        locks.append({'rse_id': res_id,
-                      'rse': get_rse_name(rse_id=res_id, session=session)})
+    for rse_id in result:
+        locks.append({'rse_id': rse_id,
+                      'rse': get_rse_name(rse_id=rse_id, session=session)})
 
     return locks
 
@@ -298,7 +298,8 @@ def get_files_and_replica_locks_of_dataset(scope, name, nowait=False, restrict_r
                 ).join(
                     models.ReplicaLock,
                     and_(models.DataIdentifierAssociation.child_scope == models.ReplicaLock.scope,
-                         models.DataIdentifierAssociation.child_name == models.ReplicaLock.name)
+                         models.DataIdentifierAssociation.child_name == models.ReplicaLock.name,
+                         or_(*rse_clause))
                 ).where(
                     and_(models.DataIdentifierAssociation.scope == scope,
                          models.DataIdentifierAssociation.name == name)
@@ -577,7 +578,7 @@ def touch_dataset_locks(dataset_locks, *, session: "Session"):
                      models.DatasetLock.name == dataset_lock['name'],
                      models.DatasetLock.rse_id == dataset_lock['rse_id'])
             ).values(
-                {'access_at': dataset_lock.get('accessed_at') or now}
+                {'accessed_at': dataset_lock.get('accessed_at') or now}
             ).execution_options(
                 synchronize_session=False
             )

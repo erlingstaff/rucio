@@ -163,8 +163,6 @@ def list_quarantined_replicas(rse_id, limit, worker_number=None, total_workers=N
         stmt = select(
             models.RSEFileAssociation.scope,
             models.RSEFileAssociation.name
-        ).with_hint(
-            models.RSEFileAssociation, "index(REPLICAS REPLICAS_PK)", 'oracle'
         ).where(
             and_(models.RSEFileAssociation.rse_id == rse_id,
                  or_(*chunk))
