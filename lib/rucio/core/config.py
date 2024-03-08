@@ -352,7 +352,12 @@ def remove_section(section: str, *, session: "Session") -> bool:
     if not has_section(section=section, session=session):
         return False
     else:
-        for old in session.query(models.Config.value).filter_by(section=section).all():
+        stmt = select(
+            models.Config.value
+        ).where(
+            models.Config.section == section
+        )
+        for old in session.execute(stmt).all():
             old_option = models.ConfigHistory(section=old[0],
                                               opt=old[1],
                                               value=old[2])
@@ -360,7 +365,12 @@ def remove_section(section: str, *, session: "Session") -> bool:
             delete_from_cache(key=_has_option_cache_key(old[0], old[1]))
             delete_from_cache(key=_value_cache_key(old[0], old[1]))
 
-        session.query(models.Config).filter_by(section=section).delete()
+        stmt = delete(
+            models.Config
+        ).where(
+            models.Config.section == section
+        )
+        session.execute(stmt)
         delete_from_cache(key=SECTIONS_CACHE_KEY)
         delete_from_cache(key=_items_cache_key(section))
         return True
