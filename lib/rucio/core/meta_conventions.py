@@ -14,10 +14,10 @@
 # limitations under the License.
 
 from re import match
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Optional, Union
 
-from sqlalchemy.exc import IntegrityError
-from sqlalchemy.orm.exc import NoResultFound
+from sqlalchemy import select, and_
+from sqlalchemy.exc import IntegrityError, NoResultFound
 
 from rucio.common.constraints import AUTHORIZED_VALUE_TYPES
 from rucio.common.exception import (Duplicate, RucioException,
@@ -32,9 +32,9 @@ if TYPE_CHECKING:
 
 
 @transactional_session
-def add_key(key, key_type, value_type=None, value_regexp=None, *, session: "Session"):
+def add_key(key: str, key_type: Union[KeyType, str], value_type: Optional[str] = None, value_regexp: Optional[str] = None, *, session: "Session") -> None:
     """
-    Adds a new allowed key.
+    Add an allowed key for DID metadata (update the DID Metadata Conventions table with a new key).
 
     :param key: the name for the new key.
     :param key_type: the type of the key: all(container, dataset, file), collection(dataset or container), file, derived(compute from file for collection).
@@ -65,7 +65,7 @@ def add_key(key, key_type, value_type=None, value_regexp=None, *, session: "Sess
     except ValueError:
         raise UnsupportedKeyType('The type \'%s\' is not supported for keys!' % str(key_type))
 
-    new_key = models.DIDKey(key=key, value_type=value_type and str(value_type), value_regexp=value_regexp, key_type=key_type)
+    new_key = models.DIDMetaConventionsKey(key=key, value_type=value_type and str(value_type), value_regexp=value_regexp, key_type=key_type)
     try:
         new_key.save(session=session)
     except IntegrityError as error:
@@ -77,46 +77,52 @@ def add_key(key, key_type, value_type=None, value_regexp=None, *, session: "Sess
            or match('.*UniqueViolation.*duplicate key value violates unique constraint.*', error.args[0]) \
            or match('.*IntegrityError.*columns? key.*not unique.*', error.args[0]):
             raise Duplicate(f"key '{key}' already exists!")
-        raise
+        raise RucioException(error.args)
 
 
 @transactional_session
-def del_key(key, *, session: "Session"):
+def del_key(key: str, *, session: "Session") -> None:
     """
-    Deletes a key.
+    Delete a key in the DID Metadata Conventions table.
 
     :param key: the name for the key.
     :param session: The database session in use.
     """
-    session.query(models.DIDKey).filter(key == key).delete()
+    statement = select(models.DIDMetaConventionsKey.key).where(models.DIDMetaConventionsKey.key == key)
+    session.delete(statement)
 
 
 @read_session
-def list_keys(*, session: "Session"):
+def list_keys(*, session: "Session") -> list[str]:
     """
-    Lists all keys.
+    Lists all keys for DID Metadata Conventions.
 
     :param session: The database session in use.
 
     :returns: A list containing all keys.
     """
     key_list = []
-    query = session.query(models.DIDKey)
+    statement = select(models.DIDMetaConventionsKey.key)
+    query = session.execute(statement).scalars()
     for row in query:
-        key_list.append(row.key)
+        key_list.append(row)
     return key_list
 
 
 @transactional_session
-def add_value(key, value, *, session: "Session"):
+def add_value(key: str, value: str, *, session: "Session") -> None:
     """
-    Adds a new value to a key.
+    Adds a new value for a key in DID Metadata Convention.
 
     :param key: the name for the key.
     :param value: the value.
     :param session: The database session in use.
+
+    :raises Duplicate: Key-Value pair exists
+    :raises KeyNotFound: Key not in metadata conventions table
+    :raises InvalidValueForKey: Value conflicts with rse expression for key values or does not have the correct type
     """
-    new_value = models.DIDKeyValueAssociation(key=key, value=value)
+    new_value = models.DIDMetaConventionsConstraints(key=key, value=value)
     try:
         new_value.save(session=session)
     except IntegrityError as error:
@@ -137,22 +143,27 @@ def add_value(key, value, *, session: "Session"):
 
         raise RucioException(error.args)
 
-    k = session.query(models.DIDKey).filter_by(key=key).one()
+    statement = select(
+        models.DIDMetaConventionsKey,
+    ).where(
+        models.DIDMetaConventionsKey.key == key
+    )
+    query = session.execute(statement).scalar_one()
 
     # Check value against regexp, if defined
-    if k.value_regexp and not match(k.value_regexp, value):
-        raise InvalidValueForKey("The value '%s' for the key '%s' does not match the regular expression '%s'" % (value, key, k.value_regexp))
+    if query.value_regexp and not match(query.value_regexp, value):
+        raise InvalidValueForKey(f"The value {value} for the key {key} does not match the regular expression {query.value_regexp}")
 
     # Check value type, if defined
     type_map = dict([(str(t), t) for t in AUTHORIZED_VALUE_TYPES])
-    if k.value_type and not isinstance(value, type_map.get(k.value_type)):
-        raise InvalidValueForKey("The value '%s' for the key '%s' does not match the required type '%s'" % (value, key, k.value_type))
+    if query.value_type and not isinstance(value, type_map.get(query.value_type)):  # type: ignore ; Typing error caused by 'isinstaince' not thinking types count as classes
+        raise InvalidValueForKey(f"The value {value} for the key {key} does not match the required type {query.value_type}")
 
 
 @read_session
-def list_values(key, *, session: "Session"):
+def list_values(key: str, *, session: "Session") -> list[str]:
     """
-    Lists all values for a key.
+    Lists all allowed values for a DID key (all values for a key in DID Metadata Conventions).
 
     :param key: the name for the key.
     :param session: The database session in use.
@@ -160,14 +171,15 @@ def list_values(key, *, session: "Session"):
     :returns: A list containing all values.
     """
     value_list = []
-    query = session.query(models.DIDKeyValueAssociation).filter_by(key=key)
+    statement = select(models.DIDMetaConventionsConstraints.value).where(models.DIDMetaConventionsConstraints.key == key)
+    query = session.execute(statement).scalars()
     for row in query:
-        value_list.append(row.value)
+        value_list.append(row)
     return value_list
 
 
 @read_session
-def validate_meta(meta, did_type, *, session: "Session"):
+def validate_meta(meta: dict, did_type: DIDType, *, session: "Session") -> None:
     """
     Validates metadata for a did.
 
@@ -175,16 +187,17 @@ def validate_meta(meta, did_type, *, session: "Session"):
     :param meta: the type of the did, e.g, DATASET, CONTAINER, FILE.
     :param session: The database session in use.
 
-    :returns: True
+    :raises InvalidObject:
     """
     # For now only validate the datatype for datasets
     key = 'datatype'
     if did_type == DIDType.DATASET and key in meta:
         try:
-            session.query(models.DIDKeyValueAssociation.value).\
-                filter_by(key=key).\
-                filter_by(value=meta[key]).\
-                one()
+            statement = select(
+                models.DIDMetaConventionsConstraints.value
+            ).where(
+                and_(models.DIDMetaConventionsConstraints.value == meta[key], models.DIDMetaConventionsConstraints.key == key)
+            )
+            session.execute(statement).one()
         except NoResultFound:
-            print("The value '%s' for the key '%s' is not valid" % (meta[key], key))
-            raise InvalidObject("The value '%s' for the key '%s' is not valid" % (meta[key], key))
+            raise InvalidObject(f"The value {meta[key]}' for the key {key} is not valid")

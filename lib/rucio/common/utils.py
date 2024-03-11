@@ -40,7 +40,7 @@ from enum import Enum
 from functools import partial, wraps
 from io import StringIO
 from itertools import zip_longest
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Callable, Optional
 from urllib.parse import urlparse, urlencode, quote, parse_qsl, urlunparse
 from uuid import uuid4 as uuid
 from xml.etree import ElementTree
@@ -65,9 +65,7 @@ if EXTRA_MODULES['paramiko']:
         EXTRA_MODULES['paramiko'] = False
 
 if TYPE_CHECKING:
-    from collections.abc import Callable
-    from typing import TypeVar, Optional
-
+    from typing import TypeVar
     T = TypeVar('T')
 
 
@@ -2180,3 +2178,16 @@ def retrying(
                 time.sleep(wait_fixed / 1000.0)
         return _wrapper
     return _decorator
+
+
+def deep_merge_dict(source: dict, destination: dict) -> dict:
+    """Merge two dictionaries together recursively"""
+    for key, value in source.items():
+        if isinstance(value, dict):
+            # get node or create one
+            node = destination.setdefault(key, {})
+            deep_merge_dict(value, node)
+        else:
+            destination[key] = value
+
+    return destination

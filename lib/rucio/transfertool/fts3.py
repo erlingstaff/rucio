@@ -22,7 +22,7 @@ import uuid
 from collections.abc import Callable
 from configparser import NoOptionError, NoSectionError
 from json import loads
-from typing import Any, Optional, TYPE_CHECKING
+from typing import TYPE_CHECKING, Any, Optional
 from urllib.parse import urlparse
 
 import requests
@@ -31,11 +31,11 @@ from requests.adapters import ReadTimeout
 from requests.packages.urllib3 import disable_warnings  # pylint: disable=import-error
 
 from rucio.common.cache import make_region_memcached
-from rucio.common.config import config_get, config_get_bool, config_get_int
+from rucio.common.config import config_get, config_get_bool, config_get_int, config_get_list
 from rucio.common.constants import FTS_JOB_TYPE, FTS_STATE, FTS_COMPLETE_STATE
 from rucio.common.exception import TransferToolTimeout, TransferToolWrongAnswer, DuplicateFileTransferSubmission
 from rucio.common.stopwatch import Stopwatch
-from rucio.common.utils import APIEncoder, chunks, PREFERRED_CHECKSUM
+from rucio.common.utils import APIEncoder, chunks, PREFERRED_CHECKSUM, deep_merge_dict
 from rucio.core.monitor import MetricManager
 from rucio.core.oidc import request_token
 from rucio.core.request import get_source_rse, get_transfer_error
@@ -43,10 +43,12 @@ from rucio.core.rse import (determine_audience_for_rse, determine_scope_for_rse,
                             get_rse_supported_checksums_from_attributes)
 from rucio.db.sqla.constants import RequestState
 from rucio.transfertool.transfertool import Transfertool, TransferToolBuilder, TransferStatusReport
+from rucio.transfertool.fts3_plugins import FTS3TapeMetadataPlugin
 
 if TYPE_CHECKING:
     from rucio.core.request import DirectTransfer
     from rucio.core.rse import RseData
+    from sqlalchemy.orm import Session
 
 logging.getLogger("requests").setLevel(logging.CRITICAL)
 disable_warnings()
@@ -122,7 +124,7 @@ def _scitags_ids(logger: Callable[..., Any] = logging.log) -> "tuple[int | None,
     if _SCITAGS_NEXT_REFRESH < now:
         exp_name = config_get('packet-marking', 'exp_name', default='')
         fetch_url = config_get('packet-marking', 'fetch_url', default='https://www.scitags.org/api.json')
-        fetch_interval = config_get_int('packet-marking', 'fetch_interval', default=datetime.timedelta(hours=48).seconds)
+        fetch_interval = config_get_int('packet-marking', 'fetch_interval', default=int(datetime.timedelta(hours=48).total_seconds()))
         fetch_timeout = config_get_int('packet-marking', 'fetch_timeout', default=5)
 
         _SCITAGS_NEXT_REFRESH = now + datetime.timedelta(seconds=fetch_interval)
@@ -308,7 +310,12 @@ def _use_tokens(transfer_hop: "DirectTransfer"):
     return True
 
 
-def build_job_params(transfer_path, bring_online, default_lifetime, archive_timeout_override, max_time_in_queue, logger):
+def build_job_params(
+        transfer_path: list["DirectTransfer"],
+        bring_online: Optional[int] = None,
+        default_lifetime: Optional[int] = None,
+        archive_timeout_override: Optional[int] = None,
+        max_time_in_queue: Optional[dict] = None, logger: Callable = logging.log) -> dict[str, Any]:
     """
     Prepare the job parameters which will be passed to FTS transfertool
     """
@@ -402,8 +409,16 @@ def build_job_params(transfer_path, bring_online, default_lifetime, archive_time
     return job_params
 
 
-def bulk_group_transfers(transfer_paths, policy='rule', group_bulk=200, source_strategy=None, max_time_in_queue=None,
-                         logger=logging.log, archive_timeout_override=None, bring_online=None, default_lifetime=None):
+def bulk_group_transfers(
+        transfer_paths: list[list["DirectTransfer"]],
+        policy: str = 'rule',
+        group_bulk: int = 200,
+        source_strategy: Optional[str] = None,
+        max_time_in_queue: Optional[dict] = None,
+        logger: Callable = logging.log,
+        archive_timeout_override: Optional[int] = None,
+        bring_online: Optional[int] = None,
+        default_lifetime: Optional[int] = None) -> list[dict[str, Any]]:
     """
     Group transfers in bulk based on certain criterias
 
@@ -494,7 +509,7 @@ class Fts3TransferStatusReport(TransferStatusReport):
         'attributes',
     ]
 
-    def __init__(self, external_host, request_id, request=None):
+    def __init__(self, external_host: str, request_id: str, request: Optional[dict] = None):
         super().__init__(request_id, request=request)
         self.external_host = external_host
 
@@ -523,10 +538,10 @@ class Fts3TransferStatusReport(TransferStatusReport):
         return f'Transfer {self._transfer_id} of {self._file_metadata["scope"]}:{self._file_metadata["name"]} ' \
                f'{self._file_metadata["src_rse"]} --({self._file_metadata["request_id"]})-> {self._file_metadata["dst_rse"]}'
 
-    def initialize(self, session, logger=logging.log):
+    def initialize(self, session: "Session", logger: Callable = logging.log) -> None:
         raise NotImplementedError(f"{self.__class__.__name__} is abstract and shouldn't be used directly")
 
-    def get_monitor_msg_fields(self, session, logger=logging.log):
+    def get_monitor_msg_fields(self, session: "Session", logger: Callable = logging.log) -> dict[str, Any]:
         self.ensure_initialized(session, logger)
         fields = {
             'transfer_link': self._transfer_link(),
@@ -545,7 +560,7 @@ class Fts3TransferStatusReport(TransferStatusReport):
     def _transfer_link(self):
         return '%s/fts3/ftsmon/#/job/%s' % (self._fts_address.replace('8446', '8449'), self._transfer_id)
 
-    def _find_attribute_updates(self, request, new_state, reason, overwrite_corrupted_files):
+    def _find_attribute_updates(self, request: dict, new_state: RequestState, reason: str, overwrite_corrupted_files: Optional[bool] = None) -> Optional[dict[str, Any]]:
         attributes = None
         if new_state == RequestState.FAILED and 'Destination file exists and overwrite is not enabled' in (reason or ''):
             dst_file = self._file_metadata.get('dst_file', {})
@@ -555,7 +570,7 @@ class Fts3TransferStatusReport(TransferStatusReport):
                     attributes['overwrite'] = True
         return attributes
 
-    def _find_used_source_rse(self, session, logger):
+    def _find_used_source_rse(self, session: "Session", logger: Callable) -> tuple[Optional[str], Optional[str]]:
         """
         For multi-source transfers, FTS has a choice between multiple sources.
         Find which of the possible sources FTS actually used for the transfer.
@@ -573,7 +588,7 @@ class Fts3TransferStatusReport(TransferStatusReport):
         return meta_rse_name, meta_rse_id
 
     @staticmethod
-    def _dst_file_set_and_file_corrupted(request, dst_file):
+    def _dst_file_set_and_file_corrupted(request: dict, dst_file: dict) -> bool:
         """
         Returns True if the `dst_file` dict returned by fts was filled and its content allows to
         affirm that the file is corrupted.
@@ -586,7 +601,7 @@ class Fts3TransferStatusReport(TransferStatusReport):
         return False
 
     @staticmethod
-    def _dst_file_set_and_file_correct(request, dst_file):
+    def _dst_file_set_and_file_correct(request: dict, dst_file: dict) -> bool:
         """
         Returns True if the `dst_file` dict returned by fts was filled and its content allows to
         affirm that the file is correct.
@@ -643,7 +658,7 @@ class FTS3CompletionMessageTransferStatusReport(Fts3TransferStatusReport):
         self._src_url = fts_message.get('src_url', None)
         self._dst_url = fts_message.get('dst_url', None)
 
-    def initialize(self, session, logger=logging.log):
+    def initialize(self, session: "Session", logger: Callable = logging.log) -> None:
 
         fts_message = self.fts_message
         request_id = self.request_id
@@ -715,7 +730,7 @@ class FTS3ApiTransferStatusReport(Fts3TransferStatusReport):
         self._dst_url = file_response.get('dest_surl', None)
         self.logger = logging.log
 
-    def initialize(self, session, logger=logging.log):
+    def initialize(self, session: "Session", logger=logging.log) -> None:
 
         self.logger = logger
         job_response = self.job_response
@@ -811,6 +826,9 @@ class FTS3Transfertool(Transfertool):
         self.bring_online = bring_online
         self.default_lifetime = default_lifetime
         self.archive_timeout_override = archive_timeout_override
+
+        tape_plugins = config_get_list("transfers", "fts3tape_metadata_plugins", False, "[]")
+        self.tape_metadata_plugins = [FTS3TapeMetadataPlugin(plugin.strip(" ")) for plugin in tape_plugins]
 
         self.token = None
         if oidc_support:
@@ -936,11 +954,11 @@ class FTS3Transfertool(Transfertool):
         if self.token:
             t_file['source_tokens'] = []
             for source in transfer.sources:
-                src_audience = config_get('conveyor', 'request_oidc_audience', False) or determine_audience_for_rse(rse_id=source.rse.id)
+                src_audience = determine_audience_for_rse(rse_id=source.rse.id)
                 src_scope = determine_scope_for_rse(rse_id=source.rse.id, scopes=['storage.read'], extra_scopes=['offline_access'])
                 t_file['source_tokens'].append(request_token(src_audience, src_scope))
 
-            dst_audience = config_get('conveyor', 'request_oidc_audience', False) or determine_audience_for_rse(transfer.dst.rse.id)
+            dst_audience = determine_audience_for_rse(transfer.dst.rse.id)
             # FIXME: At the time of writing, StoRM requires `storage.read` in
             # order to perform a stat operation.
             dst_scope = determine_scope_for_rse(transfer.dst.rse.id, scopes=['storage.modify', 'storage.read'], extra_scopes=['offline_access'])
@@ -950,6 +968,11 @@ class FTS3Transfertool(Transfertool):
             activity_id = self.scitags_activity_ids.get(rws.activity)
             if isinstance(activity_id, int):
                 t_file['scitag'] = self.scitags_exp_id << 6 | activity_id
+
+        for plugin in self.tape_metadata_plugins:
+            plugin_hints = plugin.hints(t_file['metadata'])
+
+            t_file = deep_merge_dict(source=plugin_hints, destination=t_file)
 
         return t_file
 
@@ -1469,7 +1492,7 @@ class FTS3Transfertool(Transfertool):
                                                                                                                                    job_response['http_message'] if 'http_message' in job_response else None))
         return responses
 
-    def __query_details(self, transfer_id):
+    def __query_details(self, transfer_id: Optional[dict[str, Any]]) -> Optional[str]:
         """
         Query the detailed status of a transfer in FTS3 via JSON.
 
