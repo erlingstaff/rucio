@@ -14,6 +14,7 @@
 # limitations under the License.
 
 import pytest
+from sqlalchemy import and_, select
 
 from rucio.client.replicaclient import ReplicaClient
 from rucio.common import exception
@@ -169,7 +170,13 @@ class TestRSECoreApi:
         rse_name = rse_name_generator()
         rse_id = add_rse(rse_name, vo=vo)
         db_session = session.get_session()
-        rse_usage = db_session.query(models.RSEUsage).filter_by(rse_id=rse_id, source='rucio').one()
+        stmt = select(
+            models.RSEUsage
+        ).where(
+            and_(models.RSEUsage.rse_id == rse_id,
+                 models.RSEUsage.source == 'rucio')
+        )
+        rse_usage = db_session.execute(stmt).scalar_one()
         rse_usage.used = 1
         db_session.commit()
         with pytest.raises(RSEOperationNotSupported):
@@ -213,7 +220,13 @@ class TestRSECoreApi:
         assert rse_is_empty(rse_id=rse_id)
 
         db_session = session.get_session()
-        rse_usage = db_session.query(models.RSEUsage).filter_by(rse_id=rse_id, source='rucio').one()
+        stmt = select(
+            models.RSEUsage
+        ).where(
+            and_(models.RSEUsage.rse_id == rse_id,
+                 models.RSEUsage.source == 'rucio')
+        )
+        rse_usage = db_session.execute(stmt).scalar_one()
         rse_usage.used = 1
         db_session.commit()
         assert not rse_is_empty(rse_id=rse_id)
@@ -372,7 +385,13 @@ def test_delete_rse(vo, rest_client, auth_token):
     rse_name = rse_name_generator()
     rse_id = add_rse(rse_name, vo=vo)
     db_session = session.get_session()
-    rse_usage = db_session.query(models.RSEUsage).filter_by(rse_id=rse_id, source='rucio').one()
+    stmt = select(
+        models.RSEUsage
+    ).where(
+        and_(models.RSEUsage.rse_id == rse_id,
+             models.RSEUsage.source == 'rucio')
+    )
+    rse_usage = db_session.execute(stmt).scalar_one()
     rse_usage.used = 1
     db_session.commit()
     response = rest_client.delete('/rses/{0}'.format(rse_name), headers=headers(auth(auth_token), hdrdict(headers_dict)))
@@ -1509,11 +1528,17 @@ class TestRSEClient:
         add_rse(rse_name, vo=vo)
         rse_id = get_rse_id(rse_name, vo=vo)
         db_session = session.get_session()
-        rse_usage = db_session.query(models.RSEUsage).filter_by(rse_id=rse_id, source='rucio').one()
+        stmt = select(
+            models.RSEUsage
+        ).where(
+            and_(models.RSEUsage.rse_id == rse_id,
+                 models.RSEUsage.source == 'rucio')
+        )
+        rse_usage = db_session.execute(stmt).scalar_one()
         rse_usage.used = 1
         db_session.commit()
         db_session = session.get_session()
-        print(db_session.query(models.RSEUsage).filter_by(rse_id=rse_id).one())
+        print(db_session.execute(select(models.RSEUsage).where(models.RSEUsage.rse_id == rse_id)).scalar_one())
         with pytest.raises(RSEOperationNotSupported):
             rucio_client.delete_rse(rse=rse_name)
 

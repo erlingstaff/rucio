@@ -19,7 +19,7 @@ import itertools
 from datetime import datetime, timedelta
 from random import randint
 from unittest.mock import patch
-from sqlalchemy import delete
+from sqlalchemy import delete, update, select, func, and_
 
 from rucio.common.exception import RequestNotFound
 from rucio.core import distance as distance_core
@@ -71,7 +71,8 @@ def test_request_submitted_in_order(rse_factory, did_factory, root_account):
                 # Ensure uniqueness to avoid multiple valid submission orders and make tests deterministic with simple sorting techniques
                 request_creation_time = base_time + timedelta(minutes=randint(0, 3600))
             assigned_times.add(request_creation_time)
-            session.query(Request).filter(Request.id == request['id']).update({'created_at': request_creation_time})
+            stmt = update(Request).where(Request.id == request['id']).values({'created_at': request_creation_time})
+            session.execute(stmt)  # type: ignore
             request['created_at'] = request_creation_time
 
     _forge_requests_creation_time()
@@ -161,11 +162,17 @@ def test_multihop_sources_created(rse_factory, did_factory, root_account, core_c
 
     @read_session
     def __number_sources(rse_id, scope, name, *, session=None):
-        return session.query(Source). \
-            filter(Source.rse_id == rse_id). \
-            filter(Source.scope == scope). \
-            filter(Source.name == name). \
-            count()
+        stmt = select(
+            func.count()
+        ).select_from(
+            Source
+        ).where(
+            and_(Source.rse_id == rse_id,
+                 Source.scope == scope,
+                 Source.name == name)
+        )
+        result = session.execute(stmt).scalar()  # type: ignore
+        return result
 
     # Ensure that sources where created for transfers
     for rse_id in [src_rse_id, jump_rse1_id, jump_rse2_id]:

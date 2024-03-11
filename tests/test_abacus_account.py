@@ -15,6 +15,7 @@
 
 
 import pytest
+from sqlalchemy import delete
 
 from rucio.common.schema import get_schema_value
 from rucio.core.account import get_usage_history
@@ -33,8 +34,10 @@ class TestAbacusAccount2():
     def test_abacus_account(self, vo, root_account, mock_scope, rse_factory, did_factory, rucio_client):
         """ ABACUS (ACCOUNT): Test update of account usage """
         session = get_session()
-        session.query(models.UpdatedAccountCounter).delete()  # pylint: disable=no-member
-        session.query(models.AccountUsage).delete()  # pylint: disable=no-member
+        stmt = delete(models.UpdatedAccountCounter)
+        session.execute(stmt)
+        stmt = delete(models.AccountUsage)
+        session.execute(stmt)
         session.commit()  # pylint: disable=no-member
 
         # Upload files -> account usage should increase

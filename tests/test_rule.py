@@ -20,6 +20,7 @@ import string
 from logging import getLogger
 
 import pytest
+from sqlalchemy import func, select
 
 import rucio.api.rule
 from rucio.api.account import add_account
@@ -101,8 +102,15 @@ def check_dataset_ok_callback(scope, name, rse, rse_id, rule_id, *, session=None
     if scope.vo != 'def':
         message['vo'] = scope.vo
 
-    callbacks = session.query(models.Message.id).filter(models.Message.payload == json.dumps(message)).all()
-    if len(callbacks) > 0:
+    stmt = select(
+        func.count(models.Message.id)
+    ).select_from(
+        models.Message
+    ).where(
+        models.Message.payload == json.dumps(message)
+    )
+    callback = session.execute(stmt).scalar_one()  # type: ignore
+    if callback > 0:
         return True
     return False
 
@@ -116,8 +124,15 @@ def check_rule_progress_callback(scope, name, progress, rule_id, *, session=None
     if scope.vo != 'def':
         message['vo'] = scope.vo
 
-    callbacks = session.query(models.Message.id).filter(models.Message.payload == json.dumps(message)).all()
-    if callbacks:
+    stmt = select(
+        func.count()
+    ).select_from(
+        models.Message
+    ).where(
+        models.Message.payload == json.dumps(message)
+    )
+    callback = session.execute(stmt).scalar_one()  # type: ignore
+    if callback > 0:
         return True
     return False
 

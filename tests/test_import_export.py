@@ -14,6 +14,7 @@
 # limitations under the License.
 
 from copy import deepcopy
+from sqlalchemy import delete, select
 
 import pytest
 
@@ -73,7 +74,7 @@ def check_protocols(rse, test_data, vo='def'):
 def reset_rses():
     yield
     db_session = session.get_session()
-    for rse in db_session.query(models.RSE).all():
+    for rse in db_session.execute(select(models.RSE)).scalars().all():
         rse.deleted = False
         rse.deleted_at = None
         rse.save(session=db_session)
@@ -1200,7 +1201,7 @@ class TestImporterSyncModes:
 @pytest.fixture
 def distances_data(vo):
     db_session = session.get_session()
-    db_session.query(models.Distance).delete()
+    db_session.execute(delete(models.Distance))
     db_session.commit()
 
     rse_1 = 'MOCK'

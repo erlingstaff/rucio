@@ -14,6 +14,7 @@
 # limitations under the License.
 
 from datetime import datetime, timedelta
+from sqlalchemy import select
 
 import pytest
 
@@ -128,7 +129,13 @@ class TestJudgeEvaluator:
         # simulate that time to inject the rule has arrived
         @transactional_session
         def __update_created_at(*, session=None):
-            session.query(ReplicationRule).filter_by(id=rule_id).one().created_at = datetime.utcnow()
+            stmt = select(
+                ReplicationRule
+            ).where(
+                ReplicationRule.id == rule_id
+            )
+            result = session.execute(stmt).scalar_one()  # type: ignore
+            result.created_at = datetime.utcnow()
         __update_created_at()
 
         # The injector must create the locks now

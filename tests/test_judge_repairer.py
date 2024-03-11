@@ -15,6 +15,7 @@
 
 import itertools
 from hashlib import sha256
+from sqlalchemy import and_, select
 
 import pytest
 from dogpile.cache import make_region
@@ -190,7 +191,7 @@ class TestJudgeRepairer:
 
         # Mark the rule STUCK to fake that the re-evaluation failed
         session = get_session()
-        rule = session.query(models.ReplicationRule).filter_by(id=rule_id).one()
+        rule = session.execute(select(models.ReplicationRule).where(models.ReplicationRule.id == rule_id)).scalar_one()
         rule.state = RuleState.STUCK
         session.commit()
 
@@ -223,11 +224,32 @@ class TestJudgeRepairer:
         successful_transfer(scope=scope, name=files[2]['name'], rse_id=self.rse1_id, nowait=False)
         # Also make replicas AVAILABLE
         session = get_session()
-        replica = session.query(models.RSEFileAssociation).filter_by(scope=scope, name=files[0]['name'], rse_id=self.rse1_id).one()
+        stmt = select(
+            models.RSEFileAssociation
+        ).where(
+            and_(models.RSEFileAssociation.scope == scope,
+                 models.RSEFileAssociation.name == files[0]['name'],
+                 models.RSEFileAssociation.rse_id == self.rse1_id)
+        )
+        replica = session.execute(stmt).scalar_one()
         replica.state = ReplicaState.AVAILABLE
-        replica = session.query(models.RSEFileAssociation).filter_by(scope=scope, name=files[1]['name'], rse_id=self.rse1_id).one()
+        stmt = select(
+            models.RSEFileAssociation
+        ).where(
+            and_(models.RSEFileAssociation.scope == scope,
+                 models.RSEFileAssociation.name == files[1]['name'],
+                 models.RSEFileAssociation.rse_id == self.rse1_id)
+        )
+        replica = session.execute(stmt).scalar_one()
         replica.state = ReplicaState.AVAILABLE
-        replica = session.query(models.RSEFileAssociation).filter_by(scope=scope, name=files[2]['name'], rse_id=self.rse1_id).one()
+        stmt = select(
+            models.RSEFileAssociation
+        ).where(
+            and_(models.RSEFileAssociation.scope == scope,
+                 models.RSEFileAssociation.name == files[2]['name'],
+                 models.RSEFileAssociation.rse_id == self.rse1_id)
+        )
+        replica = session.execute(stmt).scalar_one()
         replica.state = ReplicaState.AVAILABLE
         session.commit()
 

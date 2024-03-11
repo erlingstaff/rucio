@@ -23,6 +23,7 @@ from urllib.parse import urlparse, parse_qs
 import pytest
 from jwkest.jwt import JWT
 from oic import rndstr
+from sqlalchemy import and_, select
 
 from rucio.common.config import config_get_bool
 from rucio.common.exception import (CannotAuthenticate, DatabaseException)
@@ -150,9 +151,20 @@ def get_mock_oidc_client(**kwargs):
 
 def get_oauth_session_row(account, state=None, session=None):
     if state:
-        result = session.query(models.OAuthRequest).filter_by(account=account, state=state).all()  # pylint: disable=no-member
+        stmt = select(
+            models.OAuthRequest
+        ).where(
+            and_(models.OAuthRequest.account == account,
+                 models.OAuthRequest.state == state)
+        )
+        result = session.execute(stmt).scalars().all()  # type: ignore
     else:
-        result = session.query(models.OAuthRequest).filter_by(account=account).all()  # pylint: disable=no-member
+        stmt = select(
+            models.OAuthRequest
+        ).where(
+            models.OAuthRequest.account == account
+        )
+        result = session.execute(stmt).scalars().all()  # type: ignore
     return result
 
 

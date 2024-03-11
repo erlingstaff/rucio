@@ -13,6 +13,8 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+from sqlalchemy import delete
+
 import pytest
 
 from rucio.common.config import config_get_bool
@@ -57,7 +59,7 @@ class TestJudgeEvaluator:
 
         @transactional_session
         def __cleanup_updated_dids(*, session=None):
-            session.query(UpdatedDID).delete()
+            session.execute(delete(UpdatedDID))  # type: ignore
 
         __cleanup_updated_dids()
 

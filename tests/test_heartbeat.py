@@ -16,6 +16,7 @@
 import random
 import threading
 from datetime import datetime, timedelta
+from sqlalchemy import delete, update
 
 import pytest
 
@@ -35,7 +36,12 @@ def executable_factory(function_scope_prefix, db_session):
 
     yield _create_executable
 
-    db_session.query(Heartbeats).where(Heartbeats.executable.in_(executables)).delete()
+    stmt = delete(
+        Heartbeats
+    ).where(
+        Heartbeats.executable.in_(executables)
+    )
+    db_session.execute(stmt)
 
 
 @pytest.fixture
@@ -159,8 +165,22 @@ class TestHeartbeat:
         def __forge_updated_at(*, session=None):
             two_days_ago = datetime.utcnow() - timedelta(days=2)
             a_dozen_hours_ago = datetime.utcnow() - timedelta(hours=12)
-            session.query(Heartbeats).filter_by(hostname='host1').update({'updated_at': two_days_ago})
-            session.query(Heartbeats).filter_by(hostname='host2').update({'updated_at': a_dozen_hours_ago})
+            stmt = update(
+                Heartbeats
+            ).where(
+                Heartbeats.hostname == 'host1'
+            ).values({
+                Heartbeats.updated_at: two_days_ago
+            })
+            session.execute(stmt)  # type: ignore
+            stmt = update(
+                Heartbeats
+            ).where(
+                Heartbeats.hostname == 'host2'
+            ).values({
+                Heartbeats.updated_at: a_dozen_hours_ago
+            })
+            session.execute(stmt)  # type: ignore
 
         __forge_updated_at()
 

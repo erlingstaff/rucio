@@ -14,6 +14,7 @@
 # limitations under the License.
 
 import pytest
+from sqlalchemy import delete
 
 from rucio.common.schema import get_schema_value
 from rucio.core.rse import get_rse_usage
@@ -31,8 +32,10 @@ class TestAbacusRSE():
         """ ABACUS (RSE): Test update of RSE usage. """
         # Get RSE usage of all sources
         session = get_session()
-        session.query(models.UpdatedRSECounter).delete()  # pylint: disable=no-member
-        session.query(models.RSEUsage).delete()  # pylint: disable=no-member
+        stmt = delete(models.UpdatedRSECounter)
+        session.execute(stmt)
+        stmt = delete(models.RSEUsage)
+        session.execute(stmt)
         session.commit()  # pylint: disable=no-member
 
         # Upload files -> RSE usage should increase

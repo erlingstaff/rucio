@@ -21,6 +21,7 @@ from re import search
 from string import ascii_uppercase, ascii_lowercase, ascii_letters, digits
 from unittest.mock import patch
 from urllib.parse import urlparse, parse_qs
+from sqlalchemy import select
 
 import pytest
 from oic import rndstr
@@ -880,10 +881,16 @@ class TestMultiVoClients:
         add_counter(new_rse1_vo1_id, new_acc_vo1)
         add_counter(new_rse1_vo2_id, new_acc_vo2)
 
-        query = session.query(models.AccountUsage.account, models.AccountUsage.rse_id).\
-            distinct(models.AccountUsage.account, models.AccountUsage.rse_id).\
-            filter_by(account=new_acc_vo2)
-        acc_counters = list(query.all())
+        stmt = select(
+            models.AccountUsage.account,
+            models.AccountUsage.rse_id
+        ).distinct(
+            models.AccountUsage.account,
+            models.AccountUsage.rse_id
+        ).where(
+            models.AccountUsage.account == new_acc_vo1
+        )
+        acc_counters = list(session.execute(stmt).all())
 
         assert 1 == len(acc_counters)
         for counter in acc_counters:

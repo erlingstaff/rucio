@@ -16,6 +16,7 @@
 import json
 import random
 import string
+from sqlalchemy import select
 
 import pytest
 
@@ -116,14 +117,13 @@ def test_large_payload(core_config_mock, caches_mock):
     add_message(event_type=event_type, payload=dict_long_payload)
 
     session = get_session()
-    msg = session.query(Message.id,   # pylint: disable=no-member
-                        Message.created_at,
-                        Message.event_type,
-                        Message.payload,
-                        Message.payload_nolimit,
-                        Message.services)\
-        .filter_by(event_type=event_type)\
-        .first()
+    stmt = select(
+        Message
+    ).where(
+        Message.event_type == event_type
+    )
+    result = session.execute(stmt).first()
+    msg = result[0] if result else None
     assert msg.payload == 'nolimit'
     assert msg.payload_nolimit == json.dumps(dict_long_payload)
     messages = retrieve_messages(40)

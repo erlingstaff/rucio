@@ -21,6 +21,7 @@ from datetime import datetime, timedelta
 from os import remove, unlink, listdir, rmdir, stat, path, environ
 
 import pytest
+from sqlalchemy import delete, and_
 
 from rucio.client.accountlimitclient import AccountLimitClient
 from rucio.client.didclient import DIDClient
@@ -365,11 +366,16 @@ class TestBinRucio:
             from rucio.db.sqla import session, models
             db_session = session.get_session()
             internal_scope = InternalScope(self.user, **self.vo)
-            db_session.query(models.RSEFileAssociation).filter_by(name=tmp_file1_name, scope=internal_scope).delete()
-            db_session.query(models.ReplicaLock).filter_by(name=tmp_file1_name, scope=internal_scope).delete()
-            db_session.query(models.ReplicationRule).filter_by(name=tmp_file1_name, scope=internal_scope).delete()
-            db_session.query(models.DidMeta).filter_by(name=tmp_file1_name, scope=internal_scope).delete()
-            db_session.query(models.DataIdentifier).filter_by(name=tmp_file1_name, scope=internal_scope).delete()
+            stmt = delete(models.RSEFileAssociation).where(and_(models.RSEFileAssociation.name == tmp_file1_name, models.RSEFileAssociation.scope == internal_scope))
+            db_session.execute(stmt)  # type: ignore[reportOptionalMemberAccess]
+            stmt = delete(models.ReplicaLock).where(and_(models.ReplicaLock.name == tmp_file1_name, models.ReplicaLock.scope == internal_scope))
+            db_session.execute(stmt)  # type: ignore[reportOptionalMemberAccess]
+            stmt = delete(models.ReplicationRule).where(and_(models.ReplicationRule.name == tmp_file1_name, models.ReplicationRule.scope == internal_scope))
+            db_session.execute(stmt)  # type: ignore[reportOptionalMemberAccess]
+            stmt = delete(models.DidMeta).where(and_(models.DidMeta.name == tmp_file1_name, models.DidMeta.scope == internal_scope))
+            db_session.execute(stmt)  # type: ignore[reportOptionalMemberAccess]
+            stmt = delete(models.DataIdentifier).where(and_(models.DataIdentifier.name == tmp_file1_name, models.DataIdentifier.scope == internal_scope))
+            db_session.execute(stmt)  # type: ignore[reportOptionalMemberAccess]
             db_session.commit()
             tmp_file4 = file_generator()
             checksum_tmp_file4 = md5(tmp_file4)
@@ -1837,10 +1843,10 @@ class TestBinRucio:
         from rucio.daemons.abacus import account as abacus_account
 
         db_session = session.get_session()
-        db_session.query(models.AccountUsage).delete()
-        db_session.query(models.AccountLimit).delete()
-        db_session.query(models.AccountGlobalLimit).delete()
-        db_session.query(models.UpdatedAccountCounter).delete()
+        db_session.execute(delete(models.AccountUsage))
+        db_session.execute(delete(models.AccountLimit))
+        db_session.execute(delete(models.AccountGlobalLimit))
+        db_session.execute(delete(models.UpdatedAccountCounter))
         db_session.commit()
         rse = self.def_rse
         rse_id = self.def_rse_id
